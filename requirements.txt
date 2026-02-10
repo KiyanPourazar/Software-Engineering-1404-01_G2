@@ -6,3 +6,5 @@ mysqlclient
 PyMySQL
 gunicorn
 whitenoise
+scikit-surprise
+pandas
