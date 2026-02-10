@@ -1,63 +1,170 @@
-from django.test import TestCase, Client
-from django.contrib.auth.models import User as DjangoUser
-from .models import User, City, Place, Cluster, UserOfflineFeed, Interaction
-from django.urls import reverse
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+
+from team5.models import Team5City, Team5Media, Team5MediaRating, Team5Place
+
+User = get_user_model()
 
 
-class RecommendationSystemTest(TestCase):
-    def setUp(self):
-        self.city = City.objects.create(
-            city_id="c-01", name="Tehran", total_score=4.5
+class TeamPingTests(TestCase):
+    def test_ping_requires_auth(self):
+        res = self.client.get("/team5/ping/")
+        self.assertEqual(res.status_code, 401)
+
+
+class Team5RecommendationApiTests(TestCase):
+    databases = {"default", "team5"}
+
+    @classmethod
+    def setUpTestData(cls):
+        Team5City.objects.create(city_id="tehran", city_name="Tehran", latitude=35.6892, longitude=51.389)
+        Team5Place.objects.create(
+            place_id="tehran-azadi-tower",
+            city_id="tehran",
+            place_name="Azadi Tower",
+            latitude=35.6997,
+            longitude=51.338,
         )
-        self.place = Place.objects.create(
-            place_id="p-101", city=self.city, name="Milad Tower", total_score=4.8
+        Team5Place.objects.create(
+            place_id="tehran-milad-tower",
+            city_id="tehran",
+            place_name="Milad Tower",
+            latitude=35.7448,
+            longitude=51.3753,
         )
-        self.cluster = Cluster.objects.create(
-            cluster_id="cl-01", algorithm="K-Means"
+        Team5Media.objects.create(
+            media_id="m3",
+            place_id="tehran-azadi-tower",
+            title="Azadi Tower in winter",
+            caption="Night lights and city skyline",
+        )
+        Team5Media.objects.create(
+            media_id="m9",
+            place_id="tehran-milad-tower",
+            title="Milad Tower panoramic deck",
+            caption="Tehran skyline from the top of the tower",
         )
 
-        self.django_user = DjangoUser.objects.create_user(username='kiyan', password='password123')
-        self.app_user = User.objects.create(
-            user_id="u-001", name="Kiyan", cluster=self.cluster, city=self.city
+        cls.user_main = User.objects.create_user(email="main.user@test.com", password="Pass1234!Strong")
+        cls.user_second = User.objects.create_user(email="second.user@test.com", password="Pass1234!Strong")
+        extra_users = [
+            User.objects.create_user(email=f"extra{i}@test.com", password="Pass1234!Strong")
+            for i in range(1, 5)
+        ]
+
+        Team5MediaRating.objects.create(
+            user_id=cls.user_main.id,
+            user_email=cls.user_main.email,
+            media_id="m3",
+            rate=5.0,
+            liked=True,
         )
-        UserOfflineFeed.objects.create(
-            cluster=self.cluster,
-            recommended_places=[{"place_id": "p-101", "score": 0.95}]
+        Team5MediaRating.objects.create(
+            user_id=cls.user_main.id,
+            user_email=cls.user_main.email,
+            media_id="m9",
+            rate=2.5,
+            liked=False,
         )
-
-        self.client = Client()
-
-    def test_guest_user_recommendation(self):
-        response = self.client.get(reverse('get_recommendations'))
-        self.assertEqual(response.status_code, 200)
-
-        self.assertTrue(len(response.data) > 0)
-        self.assertEqual(response.data[0].place_id, "p-101")
-
-    def test_authenticated_user_recommendation(self):
-        self.client.force_login(self.django_user)
-        response = self.client.get(reverse('get_recommendations'))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data[0]['place_id'], "p-101")
-
-    def test_feedback_logging(self):
-        self.client.force_login(self.django_user)
-        feedback_data = {
-            "place_id": "p-101",
-            "type": "LIKE",
-            "context": {"weather": "sunny", "device": "mobile"}
-        }
-        response = self.client.post(
-            reverse('post_feedback'),
-            data=feedback_data,
-            content_type='application/json'
+        Team5MediaRating.objects.create(
+            user_id=cls.user_second.id,
+            user_email=cls.user_second.email,
+            media_id="m3",
+            rate=4.5,
+            liked=True,
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Interaction.objects.filter(type="LIKE").count(), 1)
+        for user in extra_users:
+            Team5MediaRating.objects.create(
+                user_id=user.id,
+                user_email=user.email,
+                media_id="m3",
+                rate=4.0,
+                liked=True,
+            )
 
-    def test_performance_requirement(self):
-        import time
-        start_time = time.time()
-        self.client.get(reverse('get_recommendations'))
-        duration = (time.time() - start_time) * 1000  # Convert to ms
-        self.assertLess(duration, 500)
+    def test_cities_contract(self):
+        res = self.client.get("/team5/api/cities/")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertTrue(len(payload) > 0)
+        self.assertIn("cityId", payload[0])
+        self.assertIn("cityName", payload[0])
+        self.assertIn("coordinates", payload[0])
+
+    def test_city_places_filtered_by_city(self):
+        res = self.client.get("/team5/api/places/city/tehran/")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertTrue(len(payload) > 0)
+        self.assertTrue(all(item["cityId"] == "tehran" for item in payload))
+
+    def test_popular_recommendations_obey_threshold(self):
+        res = self.client.get("/team5/api/recommendations/popular/?limit=50")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertEqual(payload["kind"], "popular")
+        self.assertTrue(len(payload["items"]) > 0)
+        self.assertEqual(payload["items"][0]["mediaId"], "m3")
+        for item in payload["items"]:
+            self.assertGreaterEqual(item["overallRate"], 4.0)
+            self.assertGreaterEqual(item["ratingsCount"], 5)
+
+    def test_personalized_recommendations_rank_for_user(self):
+        res = self.client.get(f"/team5/api/recommendations/personalized/?userId={self.user_main.id}&limit=10")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertEqual(payload["source"], "personalized")
+        self.assertEqual(payload["userId"], str(self.user_main.id))
+        self.assertGreaterEqual(len(payload["items"]), 1)
+        self.assertEqual(payload["highRatedItems"][0]["mediaId"], "m3")
+
+    def test_personalized_fallback_for_new_user(self):
+        fresh = User.objects.create_user(email="brand.new@test.com", password="Pass1234!Strong")
+        res = self.client.get(f"/team5/api/recommendations/personalized/?userId={fresh.id}")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertEqual(payload["source"], "fallback_popular")
+        self.assertGreater(len(payload["items"]), 0)
+
+    def test_personalized_requires_user_id(self):
+        res = self.client.get("/team5/api/recommendations/personalized/")
+        self.assertEqual(res.status_code, 400)
+
+    def test_user_interest_distribution(self):
+        res = self.client.get(f"/team5/api/users/{self.user_main.id}/interests/")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertEqual(payload["userId"], str(self.user_main.id))
+        self.assertIn("cityInterests", payload)
+        self.assertIn("placeInterests", payload)
+        self.assertGreaterEqual(len(payload["cityInterests"]), 1)
+
+    def test_list_registered_users(self):
+        res = self.client.get("/team5/api/users/")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertIn("count", payload)
+        self.assertIn("items", payload)
+        self.assertGreaterEqual(payload["count"], 2)
+
+    def test_user_ratings_endpoint_from_db(self):
+        res = self.client.get(f"/team5/api/users/{self.user_main.id}/ratings/")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertEqual(str(self.user_main.id), payload["userId"])
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(payload["items"][0]["mediaId"], "m3")
+
+    def test_media_split_high_low(self):
+        res = self.client.get(f"/team5/api/media/?userId={self.user_main.id}")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertTrue(any(item["mediaId"] == "m3" for item in payload["ratedHigh"]))
+        self.assertTrue(any(item["mediaId"] == "m9" for item in payload["ratedLow"]))
+
+    def test_personalized_contains_similar_items(self):
+        res = self.client.get(f"/team5/api/recommendations/personalized/?userId={self.user_main.id}&limit=6")
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        self.assertTrue(any(item["mediaId"] == "m3" for item in payload["highRatedItems"]))
+        self.assertTrue(any(item["mediaId"] == "m9" for item in payload["similarItems"]))

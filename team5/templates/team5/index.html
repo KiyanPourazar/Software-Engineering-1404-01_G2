@@ -1,24 +1,373 @@
-{% load static %}
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Group 5 - Recommendation Service</title>
-    <link rel="stylesheet" href="{% static 'team5/styles/style.css' %}">
+    <title>Team5 Recommendation UI</title>
+    <link rel="stylesheet" href="../../static/team5/styles/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap" rel="stylesheet">
 </head>
 <body>
-    <h1>Recommendation Service</h1>
-    <h3>پیاده‌سازی توسط گروه 5</h3>
-    <hr style="width: 50%; margin: 20px auto; opacity: 0.3;">
-    
-    <div style="border: 2px dashed #ccc; padding: 50px; border-radius: 10px; margin: 20px 0;">
-        <p>محل قرارگیری رابط کاربری میکرو سرویس</p>
-        <p>(Microservice UI Placeholder)</p>
-    </div>
+    <main class="container">
+        <header class="page-header">
+            <h1>Recommendation Service</h1>
+            <p>نمایش خروجی APIهای Team5 به‌صورت UI</p>
+        </header>
 
-    <a href="/" class="back-btn"> بازگشت به داشبورد اصلی</a>
-    
+        <section class="panel">
+            <h2>تنظیمات</h2>
+            <div class="form-grid">
+                <label>
+                    انتخاب کاربر
+                    <select id="userSelect">
+                        <option value="">-- ابتدا بارگذاری کاربران --</option>
+                    </select>
+                </label>
+                <label>
+                    User ID
+                    <input id="userIdInput" type="text" value="" placeholder="UUID user id">
+                </label>
+                <label>
+                    City ID
+                    <input id="cityIdInput" type="text" value="tehran" placeholder="tehran">
+                </label>
+                <label>
+                    Limit
+                    <input id="limitInput" type="number" min="1" max="100" value="5">
+                </label>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>اکشن‌ها</h2>
+            <div class="actions">
+                <button id="loadUsersBtn" type="button">Load Users Dropdown</button>
+                <button data-action="cities">Cities</button>
+                <button data-action="places">Places by City</button>
+                <button data-action="media">Media (User View)</button>
+                <button data-action="users">Registered Users</button>
+                <button data-action="user-ratings">User Ratings (DB)</button>
+                <button data-action="popular">Popular</button>
+                <button data-action="personalized">Personalized</button>
+                <button data-action="interests">User Interests</button>
+                <button data-action="ping">Ping (auth required)</button>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>خروجی JSON</h2>
+            <pre id="jsonOutput">روی یکی از دکمه‌ها کلیک کن...</pre>
+        </section>
+
+        <section class="panel">
+            <h2>نمایش کارت‌ها</h2>
+            <div id="cardsOutput" class="cards"></div>
+        </section>
+
+        <section class="panel panel-note">
+            <h2>راهنما</h2>
+            <ul>
+                <li>برای Personalized و Interests مقدار <code>User ID</code> را تنظیم کن.</li>
+                <li>برای مشاهده امتیازهای دیتابیسی کاربر، دکمه <code>User Ratings (DB)</code> را بزن.</li>
+                <li>در اکشن <code>Media (User View)</code> لیست کلی + امتیازهای بالا/پایین همان کاربر نمایش داده می‌شود.</li>
+                <li>در این میکروسرویس امتیاز جدید ثبت نمی‌شود؛ فقط از امتیازهای موجود استفاده می‌کنیم.</li>
+                <li>برای Places by City مقدار <code>City ID</code> را تنظیم کن (مثل: tehran, isfahan).</li>
+                <li>برای Ping باید قبلا لاگین کرده باشی تا 200 بگیری.</li>
+            </ul>
+        </section>
+    </main>
+
+    <script>
+        const userIdInput = document.getElementById("userIdInput");
+        const userSelect = document.getElementById("userSelect");
+        const loadUsersBtn = document.getElementById("loadUsersBtn");
+        const cityIdInput = document.getElementById("cityIdInput");
+        const limitInput = document.getElementById("limitInput");
+        const jsonOutput = document.getElementById("jsonOutput");
+        const cardsOutput = document.getElementById("cardsOutput");
+        const API_BASE = window.location.port === "8000" ? "" : "http://127.0.0.1:8000";
+        const placesById = new Map();
+        const citiesById = new Map();
+        let lastAction = "popular";
+
+        function api(path) {
+            return `${API_BASE}${path}`;
+        }
+
+        const endpointByAction = {
+            cities: () => api("/team5/api/cities/"),
+            places: () => api(`/team5/api/places/city/${encodeURIComponent(cityIdInput.value.trim())}/`),
+            media: () => api(`/team5/api/media/?userId=${encodeURIComponent(userIdInput.value.trim())}`),
+            users: () => api("/team5/api/users/"),
+            "user-ratings": () => api(`/team5/api/users/${encodeURIComponent(userIdInput.value.trim())}/ratings/`),
+            popular: () => api(`/team5/api/recommendations/popular/?limit=${safeLimit()}`),
+            personalized: () =>
+                api(`/team5/api/recommendations/personalized/?userId=${encodeURIComponent(userIdInput.value.trim())}&limit=${safeLimit()}`),
+            interests: () => api(`/team5/api/users/${encodeURIComponent(userIdInput.value.trim())}/interests/`),
+            ping: () => api("/team5/ping/")
+        };
+
+        function safeLimit() {
+            const parsed = Number(limitInput.value);
+            if (!Number.isFinite(parsed)) return 5;
+            return Math.min(100, Math.max(1, Math.floor(parsed)));
+        }
+
+        async function callAction(action) {
+            const urlFactory = endpointByAction[action];
+            if (!urlFactory) return;
+
+            const url = urlFactory();
+            try {
+                const res = await fetch(url, { credentials: "same-origin" });
+                const text = await res.text();
+                let payload = text;
+                try {
+                    payload = JSON.parse(text);
+                } catch (_) {
+                    // Keep non-JSON response as plain text
+                }
+
+                jsonOutput.textContent = JSON.stringify(
+                    {
+                        status: res.status,
+                        endpoint: url,
+                        data: payload
+                    },
+                    null,
+                    2
+                );
+
+                renderCards(payload);
+            } catch (error) {
+                jsonOutput.textContent = JSON.stringify(
+                    { status: "network_error", endpoint: url, error: String(error) },
+                    null,
+                    2
+                );
+                cardsOutput.innerHTML = "";
+            }
+        }
+
+        async function loadReferenceData() {
+            try {
+                const citiesRes = await fetch(api("/team5/api/cities/"), { credentials: "same-origin" });
+                const cities = await citiesRes.json();
+                if (Array.isArray(cities)) {
+                    for (const city of cities) {
+                        citiesById.set(city.cityId, city.cityName);
+                    }
+                    await Promise.all(
+                        cities.map(async (city) => {
+                            try {
+                                const res = await fetch(api(`/team5/api/places/city/${encodeURIComponent(city.cityId)}/`), {
+                                    credentials: "same-origin"
+                                });
+                                const places = await res.json();
+                                if (Array.isArray(places)) {
+                                    for (const place of places) {
+                                        placesById.set(place.placeId, place);
+                                    }
+                                }
+                            } catch (_) {
+                                // Skip on single city failure and continue.
+                            }
+                        })
+                    );
+                }
+            } catch (_) {
+                // Keep UI usable even if reference data is unavailable.
+            }
+        }
+
+        async function loadUsersToDropdown() {
+            const endpoint = api("/team5/api/users/");
+            try {
+                const res = await fetch(endpoint, { credentials: "same-origin" });
+                const data = await res.json();
+                const users = Array.isArray(data.items) ? data.items : [];
+
+                userSelect.innerHTML = "";
+                if (!users.length) {
+                    userSelect.innerHTML = '<option value="">-- کاربری پیدا نشد --</option>';
+                    return;
+                }
+
+                userSelect.innerHTML = '<option value="">-- یک کاربر انتخاب کن --</option>';
+                for (const user of users) {
+                    const option = document.createElement("option");
+                    option.value = user.userId;
+                    const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+                    option.textContent = fullName
+                        ? `${fullName} - ${user.email}`
+                        : `${user.email} - ${user.userId}`;
+                    userSelect.appendChild(option);
+                }
+
+                // Set first user automatically for easier testing
+                userSelect.selectedIndex = 1;
+                userIdInput.value = userSelect.value;
+            } catch (error) {
+                userSelect.innerHTML = '<option value="">-- خطا در بارگذاری کاربران --</option>';
+                jsonOutput.textContent = JSON.stringify(
+                    { status: "network_error", endpoint, error: String(error) },
+                    null,
+                    2
+                );
+            }
+        }
+
+        function renderCards(payload) {
+            cardsOutput.innerHTML = "";
+
+            const sections = [];
+            if (Array.isArray(payload)) {
+                sections.push({ title: sectionTitleForAction(lastAction), items: payload });
+            } else if (payload && typeof payload === "object") {
+                if (Array.isArray(payload.highRatedItems)) {
+                    sections.push({ title: "Personalized", items: payload.highRatedItems });
+                }
+                if (Array.isArray(payload.similarItems)) {
+                    sections.push({ title: "Similars", items: payload.similarItems });
+                }
+                if (Array.isArray(payload.ratedHigh)) {
+                    sections.push({ title: "Rated High", items: payload.ratedHigh });
+                }
+                if (Array.isArray(payload.ratedLow)) {
+                    sections.push({ title: "Rated Low", items: payload.ratedLow });
+                }
+                // Show generic items only when there are no more specific sections.
+                if (
+                    Array.isArray(payload.items) &&
+                    !sections.length
+                ) {
+                    sections.push({ title: sectionTitleForAction(lastAction), items: payload.items });
+                }
+            }
+
+            const hasAnyItems = sections.some((section) => section.items && section.items.length);
+            if (!hasAnyItems) {
+                cardsOutput.innerHTML = '<p class="empty">داده‌ای برای نمایش کارت وجود ندارد.</p>';
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            for (const section of sections) {
+                if (!section.items || !section.items.length) continue;
+                const title = document.createElement("h3");
+                title.className = "section-title";
+                title.textContent = section.title;
+                fragment.appendChild(title);
+
+                const grid = document.createElement("div");
+                grid.className = "cards";
+                for (const item of section.items) {
+                    const card = document.createElement("article");
+                    card.className = "card card-modern";
+                    card.innerHTML = renderMinimalCard(item);
+                    grid.appendChild(card);
+                }
+                fragment.appendChild(grid);
+            }
+            cardsOutput.appendChild(fragment);
+        }
+
+        function renderMinimalCard(item) {
+            const placeId = item.placeId || item.media?.placeId || "";
+            const place = placeId ? placesById.get(placeId) : null;
+            const cityName = place ? (citiesById.get(place.cityId) || place.cityId) : "-";
+            const placeName = place?.placeName || item.placeName || item.title || item.mediaId || "محتوا";
+            const avgRate = Number(item.overallRate ?? item.media?.overallRate);
+            const userRate = Number(item.userRate ?? item.rate);
+            const avgText = Number.isFinite(avgRate) ? avgRate.toFixed(2) : "-";
+            const userText = Number.isFinite(userRate) ? userRate.toFixed(1) : "-";
+            const reason = item.matchReason ? mapReason(item.matchReason) : "";
+
+            return `
+                <div class="card-top">
+                    <h3 class="place-name">${escapeHtml(placeName)}</h3>
+                    <p class="city-name">${escapeHtml(cityName)}</p>
+                </div>
+                <div class="stats">
+                    <div class="stat">
+                        <span class="label">میانگین</span>
+                        <span class="value">${escapeHtml(avgText)}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">امتیاز کاربر</span>
+                        <span class="value user">${escapeHtml(userText)}</span>
+                    </div>
+                </div>
+                ${reason ? `<p class="reason">${escapeHtml(reason)}</p>` : ""}
+            `;
+        }
+
+        function mapReason(reasonKey) {
+            const labels = {
+                high_user_rating: "به خاطر امتیاز بالای کاربر",
+                similar_topic: "پیشنهاد مشابه موضوعی",
+                same_city: "پیشنهاد مشابه در همان شهر",
+                similar: "پیشنهاد مشابه"
+            };
+            return labels[reasonKey] || reasonKey;
+        }
+
+        function sectionTitleForAction(action) {
+            const labels = {
+                users: "Users",
+                cities: "Cities",
+                places: "Places",
+                media: "Media",
+                popular: "Popular",
+                personalized: "Personalized",
+                interests: "Interests",
+                "user-ratings": "User Ratings"
+            };
+            return labels[action] || "Items";
+        }
+
+        function formatValue(value) {
+            if (typeof value === "object") {
+                return JSON.stringify(value);
+            }
+            return String(value);
+        }
+
+        function escapeHtml(value) {
+            return value
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;");
+        }
+
+        document.querySelectorAll("[data-action]").forEach((btn) => {
+            btn.addEventListener("click", () => callAction(btn.dataset.action));
+        });
+        loadUsersBtn.addEventListener("click", loadUsersToDropdown);
+        userSelect.addEventListener("change", () => {
+            if (userSelect.value) {
+                userIdInput.value = userSelect.value;
+            }
+        });
+        userIdInput.addEventListener("input", () => {
+            const current = userIdInput.value.trim();
+            if (!current) {
+                userSelect.value = "";
+                return;
+            }
+            const exists = Array.from(userSelect.options).some((opt) => opt.value === current);
+            userSelect.value = exists ? current : "";
+        });
+
+        loadReferenceData();
+        loadUsersToDropdown();
+        callAction("popular");
+    </script>
+
+    <div class="footer">
+        <a href="/" class="back-btn">بازگشت به داشبورد اصلی</a>
+    </div>
 </body>
 </html>
