@@ -163,6 +163,17 @@ pre {
   box-shadow: 0 6px 16px rgba(46, 125, 50, 0.08);
   overflow: hidden;
   position: relative;
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.card-modern:hover {
+  transform: translateY(-4px);
+  border-color: #cfe5cd;
+  box-shadow: 0 14px 26px rgba(46, 125, 50, 0.18);
+}
+
+.card-modern:hover .card-image {
+  filter: saturate(1.06) contrast(1.03);
 }
 
 .card-modern.dislike-flash {
@@ -346,7 +357,7 @@ pre {
 }
 
 .reason {
-  margin: 10px 0 0;
+  margin: 10px 0 16px;
   font-size: 12px;
   color: #4f6f54;
 }
