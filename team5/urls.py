@@ -18,4 +18,5 @@ urlpatterns = [
     path("api/users/<str:user_id>/interests/", views.get_user_interests),
     path("api/train", views.train),
     path("api/ml/status", views.ml_status),
+    path("api/recommendations/", views.get_recommendations_api, name="team5_main_api"),
 ]

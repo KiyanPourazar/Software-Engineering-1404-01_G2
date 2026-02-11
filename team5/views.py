@@ -133,27 +133,61 @@ def get_occasion_recommendations(request):
     return JsonResponse(payload)
 
 
+# @csrf_exempt
+# @require_POST
+# def submit_recommendation_feedback(request):
+#     try:
+#         payload = json.loads(request.body or "{}")
+#         user_uuid = _parse_uuid(payload.get("userId"))
+#         action = str(payload.get("action") or "").strip().lower()
+#         liked = payload.get("liked")
+#
+#         if not user_uuid or action not in FEEDBACK_ACTIONS or not isinstance(liked, bool):
+#             raise ValueError("Invalid payload data")
+#
+#         Team5RecommendationFeedback.objects.create(
+#             user_id=user_uuid, action=action, liked=liked,
+#             shown_media_ids=list(
+#                 dict.fromkeys([str(m).strip() for m in payload.get("shownMediaIds", []) if str(m).strip()]))
+#         )
+#         return JsonResponse({"ok": True, "detail": "Feedback saved"})
+#     except (json.JSONDecodeError, ValueError) as e:
+#         return JsonResponse({"detail": str(e)}, status=400)
 @csrf_exempt
 @require_POST
 def submit_recommendation_feedback(request):
+    """
+    Captures user interaction (likes/dislikes) for specific recommendation results.
+    Crucial for evaluating A/B test performance and refining ML models.
+    """
     try:
         payload = json.loads(request.body or "{}")
         user_uuid = _parse_uuid(payload.get("userId"))
         action = str(payload.get("action") or "").strip().lower()
         liked = payload.get("liked")
 
-        if not user_uuid or action not in FEEDBACK_ACTIONS or not isinstance(liked, bool):
-            raise ValueError("Invalid payload data")
+        # Capture the A/B version to analyze conversion rates per group
+        ab_version = payload.get("version", "A").upper()
 
-        Team5RecommendationFeedback.objects.create(
-            user_id=user_uuid, action=action, liked=liked,
+        if not user_uuid or action not in FEEDBACK_ACTIONS or not isinstance(liked, bool):
+            raise ValueError("Invalid payload data provided.")
+
+        # Save feedback specifically to the 'team5' database
+        Team5RecommendationFeedback.objects.using('team5').create(
+            user_id=user_uuid,
+            action=action,
+            liked=liked,
+            ab_version=ab_version,
             shown_media_ids=list(
-                dict.fromkeys([str(m).strip() for m in payload.get("shownMediaIds", []) if str(m).strip()]))
+                dict.fromkeys([str(m).strip() for m in payload.get("shownMediaIds", []) if str(m).strip()])
+            )
         )
-        return JsonResponse({"ok": True, "detail": "Feedback saved"})
+        return JsonResponse({
+            "ok": True,
+            "detail": f"Feedback successfully saved for version {ab_version}"
+        })
     except (json.JSONDecodeError, ValueError) as e:
         return JsonResponse({"detail": str(e)}, status=400)
-
 
 @require_GET
 def get_user_interests(request, user_id: str):
@@ -206,3 +240,62 @@ def _load_excluded_media_ids(*, user_id: str | None, action: str) -> set[str]:
                                                                                                    "-id").first()
     if not latest or latest.liked: return set()
     return {str(m).strip() for m in latest.shown_media_ids or [] if str(m).strip()}
+
+
+@require_GET
+def get_recommendations_api(request):
+    """
+    Official API endpoint for external teams to fetch recommendations.
+    Supports: A/B Testing, Strategy Selection, and Result Limiting.
+    """
+    user_id = request.GET.get("userId")
+    limit = _parse_limit(request)
+
+    # Manage A/B Testing versions (Default is 'A')
+    # Use version='B' as a query param to trigger the test variant
+    version = request.GET.get("version", "A").upper()
+
+    # Strategy pattern: client can choose between 'personalized', 'weather', or 'popular'
+    strategy = request.GET.get("strategy", "personalized")
+
+    if not user_id:
+        return JsonResponse({
+            "status": "error",
+            "message": "userId is required as a query parameter."
+        }, status=400)
+
+    # Logic for A/B Testing: version 'B' triggers a specific test algorithm
+    if version == "B":
+        # Variant B: Testing recommendations based on specific occasions
+        items = recommendation_service.get_occasion_recommendations(user_id=user_id, limit=limit)
+        applied_method = "occasion_test_v2"
+    else:
+        # Variant A (Control): Follow the requested strategy
+        if strategy == "weather":
+            items = recommendation_service.get_weather_recommendations(user_id=user_id, limit=limit)
+        elif strategy == "popular":
+            items = recommendation_service.get_popular(limit=limit)
+        elif strategy == "nearest":
+            # Fetches location-based content (Tehran used as default fallback)
+            items = recommendation_service.get_nearest_by_city(city_id="tehran", limit=limit)
+        else:
+            # Default strategy: Collaborative filtering / Personalization
+            items = recommendation_service.get_personalized(user_id=user_id, limit=limit)
+        applied_method = strategy
+
+    # Return a structured JSON response with metadata for transparency
+    return JsonResponse({
+        "status": "success",
+        "metadata": {
+            "team": "team5",
+            "api_version": "v2.0",
+            "ab_test_group": version,
+            "applied_strategy": applied_method,
+            "limit": limit
+        },
+        "data": {
+            "userId": user_id,
+            "count": len(items),
+            "items": items
+        }
+    })
