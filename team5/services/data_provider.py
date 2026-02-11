@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from .contracts import CityRecord, MediaRecord, PlaceRecord
+from .contracts import CityRecord, MediaRecord, PlaceRecord, UserMediaRatingRecord, UserPlaceRatingRecord
 
 
 class DataProvider(ABC):
@@ -22,4 +22,12 @@ class DataProvider(ABC):
 
     @abstractmethod
     def get_media(self) -> list[MediaRecord]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_all_media_ratings(self) -> list[UserMediaRatingRecord]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_all_place_ratings(self) -> list[UserPlaceRatingRecord]:
         raise NotImplementedError

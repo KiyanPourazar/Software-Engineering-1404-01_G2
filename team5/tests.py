@@ -187,7 +187,6 @@ class Team5RecommendationApiTests(TestCase):
         self.assertTrue(any(item["mediaId"] == "m3" for item in payload["highRatedItems"]))
         self.assertTrue(any(item["mediaId"] == "m9" for item in payload["similarItems"]))
 
-<<<<<<< Updated upstream
     def test_feedback_endpoint_records_explicit_feedback(self):
         res = self.client.post(
             "/team5/api/recommendations/feedback/",
@@ -217,7 +216,7 @@ class Team5RecommendationApiTests(TestCase):
         payload = res.json()
         returned_ids = [item["mediaId"] for item in payload["items"]]
         self.assertNotIn("m3", returned_ids)
-=======
+
     def test_train(self):
         res = self.client.post("/team5/api/train")
         self.assertEqual(res.status_code, 200)
@@ -229,4 +228,3 @@ class Team5RecommendationApiTests(TestCase):
         self.assertIn("mlEnabled", payload)
         self.assertIn("modelsReady", payload)
         self.assertIn("mediaRatingsSamples", payload)
->>>>>>> Stashed changes

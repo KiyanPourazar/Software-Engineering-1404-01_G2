@@ -68,10 +68,7 @@ def get_popular_recommendations(request):
 def get_nearest_recommendations(request):
     limit = _parse_limit(request)
     user_id = request.GET.get("userId")
-<<<<<<< Updated upstream
     excluded_media_ids = _load_excluded_media_ids(user_id=user_id, action="nearest")
-=======
->>>>>>> Stashed changes
     city_override = request.GET.get("cityId")
     ip_override = request.GET.get("ip")
 
@@ -99,11 +96,8 @@ def get_nearest_recommendations(request):
     items = recommendation_service.get_nearest_by_city(
         city_id=city["cityId"],
         limit=limit,
-<<<<<<< Updated upstream
         excluded_media_ids=excluded_media_ids,
-=======
         user_id=user_id,
->>>>>>> Stashed changes
     )
     return JsonResponse(
         {
@@ -235,8 +229,6 @@ def get_user_ratings(request, user_id: str):
     ratings = recommendation_service.get_user_ratings(user_id=user_id)
     return JsonResponse({"userId": user_id, "count": len(ratings), "items": ratings})
 
-<<<<<<< Updated upstream
-=======
 @require_POST
 def train(request):
     trained = recommendation_service.train()
@@ -246,8 +238,6 @@ def train(request):
 @require_GET
 def ml_status(request):
     return JsonResponse(recommendation_service.get_ml_status())
-
->>>>>>> Stashed changes
 
 def _parse_limit(request) -> int:
     raw_limit = request.GET.get("limit")

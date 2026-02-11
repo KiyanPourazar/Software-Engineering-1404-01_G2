@@ -35,3 +35,15 @@ class MediaRecord(TypedDict):
     overallRate: float
     ratingsCount: int
     userRatings: list[UserRatingRecord]
+
+
+class UserMediaRatingRecord(TypedDict):
+    userId: str
+    mediaId: str
+    rate: float
+
+
+class UserPlaceRatingRecord(TypedDict):
+    userId: str
+    placeId: str
+    rate: float

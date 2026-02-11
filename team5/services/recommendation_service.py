@@ -13,8 +13,7 @@ from .contracts import (
 )
 from .data_provider import DataProvider
 from team5.models import Team5MediaRating
-<<<<<<< Updated upstream
-=======
+
 try:
     from .ml.recommender_model import RecommenderModel
     from team5.exceptions.not_trained_yet_exception import NotTrainedYetException
@@ -23,7 +22,6 @@ except Exception:  # pragma: no cover - optional ML dependencies
 
     class NotTrainedYetException(Exception):
         pass
->>>>>>> Stashed changes
 
 
 class RecommendationService:
@@ -39,13 +37,10 @@ class RecommendationService:
         self.popular_min_overall_rate = popular_min_overall_rate
         self.popular_min_votes = popular_min_votes
         self.personalized_min_user_rate = personalized_min_user_rate
-<<<<<<< Updated upstream
-=======
         self._ml_enabled = RecommenderModel is not None
         self.personalized_place_recommender_model = RecommenderModel((0, 5)) if self._ml_enabled else None
         self.personalized_media_recommender_model = RecommenderModel((0, 5)) if self._ml_enabled else None
         self._models_ready = False
->>>>>>> Stashed changes
 
     def get_popular(
         self,
@@ -68,19 +63,13 @@ class RecommendationService:
         self,
         city_id: str,
         limit: int = DEFAULT_LIMIT,
-<<<<<<< Updated upstream
-=======
         user_id: str | None = None,
->>>>>>> Stashed changes
         excluded_media_ids: set[str] | None = None,
     ) -> list[MediaRecord]:
         place_by_id = {place["placeId"]: place for place in self.provider.get_all_places()}
         items: list[dict] = []
         excluded = excluded_media_ids or set()
-<<<<<<< Updated upstream
-=======
         user_key = str(user_id).strip() if user_id else ""
->>>>>>> Stashed changes
 
         for media in self.provider.get_media():
             if media["mediaId"] in excluded:
@@ -92,7 +81,6 @@ class RecommendationService:
             item["matchReason"] = "your_nearest"
             items.append(item)
 
-        # Re-rank nearest items by ML prediction score when user id is available.
         if items and user_key:
             ml_scores = self._get_ml_prediction_scores_for_media(
                 user_id=user_key,
@@ -117,19 +105,12 @@ class RecommendationService:
         media_by_id = {item["mediaId"]: item for item in media}
         scored: list[tuple[float, float, int, dict]] = []
         ratings_by_media = self._get_db_ratings_by_media(user_id)
-<<<<<<< Updated upstream
-        blocked = excluded_media_ids or set()
-
-        for item in media_by_id.values():
-            if item["mediaId"] in blocked:
-=======
         excluded = excluded_media_ids or set()
         if not ratings_by_media:
             return []
 
         for item in media_by_id.values():
             if item["mediaId"] in excluded:
->>>>>>> Stashed changes
                 continue
             user_rate = ratings_by_media.get(item["mediaId"])
             if user_rate is None or user_rate < self.personalized_min_user_rate:
@@ -145,11 +126,7 @@ class RecommendationService:
         similar_items = self.get_similar_items(
             user_id=user_id,
             based_on_items=base_items,
-<<<<<<< Updated upstream
-            excluded_media_ids={item["mediaId"] for item in base_items}.union(blocked),
-=======
             excluded_media_ids={item["mediaId"] for item in base_items}.union(excluded),
->>>>>>> Stashed changes
             limit=max(1, min(limit, 10)),
         )
 
@@ -226,15 +203,12 @@ class RecommendationService:
 
     def get_media_feed(self, user_id: str | None = None) -> dict:
         items = [dict(item) for item in self.provider.get_media()]
-
         rated_high: list[dict] = []
         rated_low: list[dict] = []
         user_ratings_map = self._get_db_ratings_by_media(user_id) if user_id else {}
 
         for item in items:
-            user_rate = None
-            if user_id:
-                user_rate = user_ratings_map.get(item["mediaId"])
+            user_rate = user_ratings_map.get(item["mediaId"]) if user_id else None
             if user_rate is not None:
                 item["userRate"] = float(user_rate)
                 item["liked"] = float(user_rate) >= self.personalized_min_user_rate
@@ -311,9 +285,7 @@ class RecommendationService:
             item.media_id: float(item.rate)
             for item in Team5MediaRating.objects.filter(user_id=user_uuid)
         }
-<<<<<<< Updated upstream
-=======
-    
+
     def train(self):
         if not self._ml_enabled:
             self._models_ready = False
@@ -335,7 +307,6 @@ class RecommendationService:
             if user_place_ratings:
                 self.personalized_place_recommender_model.train(user_place_ratings)
         except Exception:
-            # Place model is optional for now; keep service available.
             return
 
     def _train_personalized_media_recommender_model(self):
@@ -452,8 +423,6 @@ class RecommendationService:
         return output
 
     def get_ml_status(self) -> dict:
-        media_samples = 0
-        place_samples = 0
         try:
             media_samples = len(self.provider.get_all_media_ratings())
         except Exception:
@@ -485,7 +454,6 @@ class RecommendationService:
             "placeModelUsers": place_model_users,
             "placeModelItems": place_model_items,
         }
->>>>>>> Stashed changes
 
 
 def _parse_uuid(value: str) -> UUID | None:
