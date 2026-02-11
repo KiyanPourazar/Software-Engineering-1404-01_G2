@@ -16,7 +16,7 @@
       const { useEffect, useMemo, useRef, useState } = React;
 
       const API_BASE = window.location.port === "8000" ? "" : "http://127.0.0.1:8000";
-      const FEEDBACK_ACTIONS = new Set(["popular", "personalized", "nearest"]);
+      const FEEDBACK_ACTIONS = new Set(["popular", "personalized", "nearest", "weather"]);
 
       const ACTION_LABELS = {
         users: "Users",
@@ -25,6 +25,7 @@
         media: "Media",
         popular: "Popular",
         nearest: "Your Nearest",
+        weather: "Weather",
         personalized: "Personalized",
         interests: "Interests",
         "user-ratings": "User Ratings",
@@ -37,6 +38,9 @@
         similar_topic: "پیشنهاد مشابه موضوعی",
         same_city: "پیشنهاد مشابه در همان شهر",
         similar: "پیشنهاد مشابه",
+        weather_now: "پیشنهاد متناسب با فصل فعلی",
+        weather_snow: "پیشنهاد برای هوای سرد و برفی",
+        weather_summer: "پیشنهاد برای روزهای گرم تابستان",
       };
 
       function api(path) {
@@ -177,6 +181,8 @@
               return api(`/team5/api/recommendations/popular/?limit=${safeLimit}&userId=${encodedUser}`);
             case "nearest":
               return api(`/team5/api/recommendations/nearest/?limit=${safeLimit}&cityId=${encodedCity}&userId=${encodedUser}`);
+            case "weather":
+              return api(`/team5/api/recommendations/weather/?limit=${safeLimit}&userId=${encodedUser}`);
             case "personalized":
               return api(`/team5/api/recommendations/personalized/?userId=${encodedUser}&limit=${safeLimit}`);
             case "interests":
@@ -391,6 +397,15 @@
         if (Array.isArray(payload)) {
           sections.push({ title: ACTION_LABELS[lastAction] || "Items", items: payload });
         } else if (payload && typeof payload === "object") {
+          if (Array.isArray(payload.sections)) {
+            for (const section of payload.sections) {
+              sections.push({
+                title: section.title || "Items",
+                subtitle: section.subtitle || "",
+                items: Array.isArray(section.items) ? section.items : [],
+              });
+            }
+          }
           if (Array.isArray(payload.highRatedItems)) sections.push({ title: "Personalized", items: payload.highRatedItems });
           if (Array.isArray(payload.similarItems)) sections.push({ title: "Similars", items: payload.similarItems });
           if (Array.isArray(payload.ratedHigh)) sections.push({ title: "Rated High", items: payload.ratedHigh });
@@ -406,6 +421,7 @@
             {sections.map((section) => (
               <React.Fragment key={section.title}>
                 <h3 className="section-title">{section.title}</h3>
+                {section.subtitle ? <p className="reason">{section.subtitle}</p> : null}
                 <div className="cards">
                   {section.items.map((item, index) => (
                     <MediaCard key={`${item.mediaId || item.placeId || "item"}-${index}`} item={item} place={placesById[item.placeId || item.media?.placeId]} citiesById={citiesById} shineCards={shineCards} dislikeFlashCards={dislikeFlashCards} />
@@ -503,6 +519,12 @@
         if (Array.isArray(payload.similarItems)) payload.similarItems.forEach((item) => pushId(item?.mediaId));
         if (Array.isArray(payload.ratedHigh)) payload.ratedHigh.forEach((item) => pushId(item?.mediaId));
         if (Array.isArray(payload.ratedLow)) payload.ratedLow.forEach((item) => pushId(item?.mediaId));
+        if (Array.isArray(payload.sections)) {
+          payload.sections.forEach((section) => {
+            if (!Array.isArray(section?.items)) return;
+            section.items.forEach((item) => pushId(item?.mediaId));
+          });
+        }
 
         return [...new Set(ids)];
       }

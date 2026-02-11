@@ -1,4 +1,5 @@
 import random
+import hashlib
 from dataclasses import dataclass
 
 from django.contrib.auth import get_user_model
@@ -234,10 +235,20 @@ class Command(BaseCommand):
         updated = 0
         for media in media_rows:
             user = random.choice(users)
+            text_only = self._is_text_only_media(media.media_id)
+            image_url = self._pick_media_image_url(
+                media.place.place_id,
+                existing_url=media.media_image_url,
+                force_text_only=text_only,
+            )
             media.author_user_id = user.id
             media.author_display_name = self._english_display_name(user)
-            media.caption = self._build_persian_caption(media.place.place_name)
-            media.media_image_url = self._pick_media_image_url(media.place.place_id)
+            media.caption = self._build_persian_caption(
+                place_name=media.place.place_name,
+                city_id=media.place.city.city_id,
+                has_image=bool(image_url),
+            )
+            media.media_image_url = image_url
             media.save(
                 update_fields=[
                     "author_user_id",
@@ -258,20 +269,58 @@ class Command(BaseCommand):
         local_part = (user.email or "").split("@")[0].replace(".", " ").replace("_", " ").strip()
         return local_part.title() if local_part else "Team5 Traveler"
 
-    def _build_persian_caption(self, place_name: str) -> str:
-        templates = [
-            f"امروز به {place_name} رفتم؛ فضا خیلی دلنشین بود و حس خوبی گرفتم.",
-            f"نمای این بخش از {place_name} واقعاً دیدنی بود و ارزش بازدید داشت.",
-            f"اگر دنبال یک تجربه متفاوت هستید، {place_name} انتخاب خیلی خوبی است.",
-            f"این عکس رو از {place_name} گرفتم؛ معماری و حال و هوای اینجا فوق العاده بود.",
-            f"به نظرم {place_name} از اون جاهاییه که باید حداقل یک بار از نزدیک دید.",
-        ]
-        return random.choice(templates)
+    def _build_persian_caption(self, *, place_name: str, city_id: str, has_image: bool) -> str:
+        south_city_ids = {"kish", "qeshm", "bandarabbas"}
+        north_city_ids = {"tonkabon", "astara", "gorgan"}
+        cold_city_ids = {"ardabil", "tabriz", "astara"}
 
-    def _pick_media_image_url(self, place_id: str) -> str:
-        # About one-third of posts are text-only and intentionally have no image.
-        if random.random() < 0.34:
+        generic_templates = [
+            f"امروز یه سر به {place_name} زدم و واقعاً حال‌وهوای خاصی داشت 😍",
+            f"{place_name} از اون جاهاییه که هر بار بری یه حس تازه می‌گیری ✨",
+            f"این گوشه از {place_name} رو خیلی دوست داشتم؛ ترکیب تاریخ و حس سفرش فوق‌العاده‌ست 📍",
+        ]
+        south_templates = [
+            f"{place_name} با این گرمای جنوبی واقعاً آتیشیه 🔥😅 ما که اینجا زندگی می‌کنیم بعضی روزها می‌گیم رسماً جهنمه، ولی بازم غروباش یه آرامش خاص داره 🌅",
+            f"از سرمای شهر خودمون خسته شده بودیم، اومدیم {place_name} و الان داریم از هوای گرم و آفتابی‌اش لذت می‌بریم ☀️🌴",
+            f"هوای {place_name} گرمه ولی حس دریا و حال‌وهوای جنوب یه چیز دیگه‌ست 🌊🔥",
+        ]
+        north_templates = [
+            f"{place_name} با بارون‌های قشنگش واقعاً دل آدمو می‌بره ☔🌿 بوی نم و صدای بارون اینجا فوق‌العاده‌ست.",
+            f"هوای {place_name} یه وقتایی رطوبتش اذیت می‌کنه، ولی منظره‌های سبز و حال خوبش نمی‌ذاره دل بکنی 🌧️🍃",
+            f"{place_name} یعنی ترکیب دریا، مه، بارون و آرامش شمالی 🌊🌫️",
+        ]
+        cold_templates = [
+            f"هوای {place_name} واقعاً سرده ❄️🧣 ولی برای عاشقای سرما یه بهشته.",
+            f"اینجا تو {place_name} حتی تابستونم هوا اونقدر خوبه که خیلی وقتا کولر روشن نمی‌کنن 🌬️😎",
+            f"{place_name} برای فرار از گرما عالیه؛ خنک، آروم و پر از حال خوب 🍃",
+        ]
+
+        if city_id in south_city_ids:
+            selected = random.choice(south_templates)
+        elif city_id in north_city_ids:
+            selected = random.choice(north_templates)
+        elif city_id in cold_city_ids:
+            selected = random.choice(cold_templates)
+        else:
+            selected = random.choice(generic_templates)
+
+        if has_image:
+            return selected
+
+        # Longer text for text-only posts to compensate missing image.
+        extensions = [
+            f"بدون عکس گذاشتم چون بعضی حس‌ها واقعاً توی قاب جا نمی‌شن؛ باید از نزدیک تجربه‌شون کرد 📝",
+            f"اگه قصد سفر داری، برای {place_name} وقت کافی بذار؛ هم مسیرش دیدنیه هم حال‌وهوای خود مکان.",
+            f"من این پست رو متنی گذاشتم تا جزئیات بیشتری بنویسم؛ از حس فضا تا هوای همون لحظه، همه‌چیز متفاوت بود.",
+        ]
+        return f"{selected} {random.choice(extensions)}"
+
+    def _pick_media_image_url(self, place_id: str, *, existing_url: str = "", force_text_only: bool = False) -> str:
+        if force_text_only:
             return ""
+
+        if (existing_url or "").strip():
+            return existing_url.strip()
 
         image_map = {
             "tehran-milad-tower": "/static/team5/styles/imgs/milad.jpg",
@@ -285,6 +334,11 @@ class Command(BaseCommand):
             "mashhad-haram": "/static/team5/styles/imgs/haram.jpg",
         }
         return image_map.get(place_id, "")
+
+    def _is_text_only_media(self, media_id: str) -> bool:
+        # Keep a deterministic subset (~20%) text-only.
+        digest = hashlib.md5(str(media_id).encode("utf-8")).hexdigest()
+        return int(digest[-2:], 16) % 5 == 0
 
     def _build_synthetic_profiles(self, count: int) -> list[DemoProfile]:
         if count <= 0:

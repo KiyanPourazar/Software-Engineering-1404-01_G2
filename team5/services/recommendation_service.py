@@ -1,6 +1,7 @@
 """Recommendation scoring for popular and personalized feeds."""
 
 from collections import defaultdict
+from datetime import datetime
 from uuid import UUID
 
 from .contracts import (
@@ -100,6 +101,84 @@ class RecommendationService:
         else:
             items.sort(key=lambda item: (float(item["overallRate"]), int(item["ratingsCount"])), reverse=True)
         return items[:limit]
+
+    def get_weather_recommendations(
+        self,
+        *,
+        limit: int = DEFAULT_LIMIT,
+        user_id: str | None = None,
+        excluded_media_ids: set[str] | None = None,
+    ) -> dict:
+        now = datetime.now()
+        season_name, season_key = _season_from_month(now.month)
+        excluded = excluded_media_ids or set()
+
+        # Section 1: season-aware "best now" recommendations.
+        if season_key == "winter":
+            now_city_ids = ["kish", "qeshm", "bandarabbas", "shiraz"]
+            now_tip = "الان هوا زمستونی است؛ جنوب ایران معمولا مطبوع‌تره."
+        elif season_key == "summer":
+            now_city_ids = ["ardabil", "astara", "tonkabon", "tabriz"]
+            now_tip = "الان هوا گرمه؛ مناطق خنک شمال و شمال‌غرب بهترن."
+        elif season_key == "spring":
+            now_city_ids = ["shiraz", "isfahan", "mashhad", "tehran"]
+            now_tip = "بهار زمان خوبی برای شهرهای تاریخی و طبیعت‌گردیه."
+        else:
+            now_city_ids = ["shiraz", "isfahan", "kish", "qeshm"]
+            now_tip = "پاییز برای سفرهای شهری و جنوب ایران گزینه خوبیه."
+
+        now_items = self._rank_weather_candidates(
+            self._filter_media_by_city_ids(city_ids=now_city_ids, excluded_media_ids=excluded),
+            user_id=user_id,
+            reason="weather_now",
+            limit=limit,
+        )
+
+        # Section 2: for users who want cold/snow vibes.
+        snow_city_ids = ["tabriz", "ardabil", "astara", "gorgan", "tonkabon"]
+        snow_items = self._rank_weather_candidates(
+            self._filter_media_by_city_ids(city_ids=snow_city_ids, excluded_media_ids=excluded),
+            user_id=user_id,
+            reason="weather_snow",
+            limit=limit,
+        )
+
+        # Section 3: cool choices for summer.
+        summer_city_ids = ["ardabil", "astara", "tonkabon", "tabriz"]
+        summer_items = self._rank_weather_candidates(
+            self._filter_media_by_city_ids(city_ids=summer_city_ids, excluded_media_ids=excluded),
+            user_id=user_id,
+            reason="weather_summer",
+            limit=limit,
+        )
+
+        sections = [
+            {
+                "id": "go-now",
+                "title": "1) الان برو...",
+                "subtitle": f"امروز {now.strftime('%Y-%m-%d')} است و فصل فعلی: {season_name}. {now_tip}",
+                "items": now_items,
+            },
+            {
+                "id": "snow-cold",
+                "title": "2) اگه برف و سرما میخوای...",
+                "subtitle": "پیشنهادهایی از شهرهای سردتر و برفی‌تر مثل تبریز، اردبیل، آستارا و شمال.",
+                "items": snow_items,
+            },
+            {
+                "id": "summer-cool",
+                "title": "3) تابستون که شد...",
+                "subtitle": "برای روزهای گرم، مقصدهای خنک‌تر مثل اردبیل و آستارا انتخاب‌های خوبی هستن.",
+                "items": summer_items,
+            },
+        ]
+
+        return {
+            "kind": "weather",
+            "today": now.strftime("%Y-%m-%d"),
+            "season": season_name,
+            "sections": sections,
+        }
 
     def get_personalized(
         self,
@@ -282,6 +361,56 @@ class RecommendationService:
             item["matchReason"] = reasons.get(media_id, "similar")
             output.append(item)
         return output
+
+    def _filter_media_by_city_ids(
+        self,
+        *,
+        city_ids: list[str],
+        excluded_media_ids: set[str],
+    ) -> list[dict]:
+        place_by_id = {place["placeId"]: place for place in self.provider.get_all_places()}
+        target_city_ids = {str(city_id).strip().lower() for city_id in city_ids if str(city_id).strip()}
+        output: list[dict] = []
+        for media in self.provider.get_media():
+            media_id = str(media["mediaId"])
+            if media_id in excluded_media_ids:
+                continue
+            place = place_by_id.get(media["placeId"])
+            if not place:
+                continue
+            city_id = str(place["cityId"]).strip().lower()
+            if city_id in target_city_ids:
+                output.append(dict(media))
+        return output
+
+    def _rank_weather_candidates(
+        self,
+        items: list[dict],
+        *,
+        user_id: str | None,
+        reason: str,
+        limit: int,
+    ) -> list[dict]:
+        if not items:
+            return []
+
+        user_key = str(user_id).strip() if user_id else ""
+        if user_key:
+            ml_scores = self._get_ml_prediction_scores_for_media(
+                user_id=user_key,
+                media_ids=[item["mediaId"] for item in items],
+            )
+            for item in items:
+                if item["mediaId"] in ml_scores:
+                    item["mlScore"] = round(float(ml_scores[item["mediaId"]]), 3)
+
+        for item in items:
+            item["matchReason"] = reason
+
+        items.sort(key=lambda item: (float(item["overallRate"]), int(item["ratingsCount"])), reverse=True)
+        if user_key:
+            items.sort(key=lambda item: float(item.get("mlScore", -1)), reverse=True)
+        return items[:limit]
 
     def _get_db_ratings_by_media(self, user_id: str) -> dict[str, float]:
         user_uuid = _parse_uuid(user_id)
@@ -485,3 +614,13 @@ def _extract_keywords(text: str) -> set[str]:
         if any(token in text for token in tokens):
             keywords.add(canonical)
     return keywords
+
+
+def _season_from_month(month: int) -> tuple[str, str]:
+    if month in {12, 1, 2}:
+        return "زمستان", "winter"
+    if month in {3, 4, 5}:
+        return "بهار", "spring"
+    if month in {6, 7, 8}:
+        return "تابستان", "summer"
+    return "پاییز", "autumn"

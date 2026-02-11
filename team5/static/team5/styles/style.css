@@ -145,7 +145,7 @@ pre {
 }
 
 .card {
-  /* height: fit-content; */
+  height: min-content;
   border: 1px solid #dce9d5;
   border-radius: 12px;
   padding: 12px;
