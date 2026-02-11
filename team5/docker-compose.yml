@@ -13,4 +13,3 @@ services:
       - "8005:8000"
     environment:
       - DEBUG=1
-      - TEAM_APPS=team5
