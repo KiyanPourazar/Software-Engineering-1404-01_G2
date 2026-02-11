@@ -16,7 +16,7 @@ from .services.recommendation_service import RecommendationService
 
 # Constants
 TEAM_NAME = "team5"
-FEEDBACK_ACTIONS = {"popular", "personalized", "nearest"}
+FEEDBACK_ACTIONS = {"popular", "personalized", "nearest", "weather"}
 User = get_user_model()
 provider = DatabaseProvider()
 recommendation_service = RecommendationService(provider)
@@ -97,6 +97,22 @@ def get_personalized_recommendations(request):
         source = "fallback_popular"
 
     return JsonResponse(Team5Serializer.serialize_personalized(items, user_id, source, limit))
+
+
+@require_GET
+def get_weather_recommendations(request):
+    limit = _parse_limit(request)
+    user_id = request.GET.get("userId")
+    excluded_media_ids = _load_excluded_media_ids(user_id=user_id, action="weather")
+    payload = recommendation_service.get_weather_recommendations(
+        limit=limit,
+        user_id=user_id,
+        excluded_media_ids=excluded_media_ids,
+    )
+    payload["limit"] = limit
+    payload["userId"] = user_id
+    payload["count"] = sum(len(section.get("items") or []) for section in payload.get("sections") or [])
+    return JsonResponse(payload)
 
 
 @csrf_exempt

@@ -53,6 +53,8 @@ class DatabaseProvider(DataProvider):
                     "placeId": row.place_id,
                     "title": row.title,
                     "caption": row.caption,
+                    "authorDisplayName": row.author_display_name,
+                    "mediaImageUrl": row.media_image_url,
                     "overallRate": item_stats["overallRate"],
                     "ratingsCount": item_stats["ratingsCount"],
                     "userRatings": [],

@@ -26,7 +26,23 @@ class MockProvider(DataProvider):
         return list(_read_json(self.base_path / "city_places.json"))
 
     def get_media(self) -> list[MediaRecord]:
-        return list(_read_json(self.base_path / "media_items.json"))
+        rows = list(_read_json(self.base_path / "media_items.json"))
+        output: list[MediaRecord] = []
+        for row in rows:
+            output.append(
+                {
+                    "mediaId": str(row.get("mediaId", "")),
+                    "placeId": str(row.get("placeId", "")),
+                    "title": str(row.get("title", "")),
+                    "caption": str(row.get("caption", "")),
+                    "authorDisplayName": str(row.get("authorDisplayName", "Team5 User")),
+                    "mediaImageUrl": str(row.get("mediaImageUrl", "")),
+                    "overallRate": float(row.get("overallRate", 0.0)),
+                    "ratingsCount": int(row.get("ratingsCount", 0)),
+                    "userRatings": list(row.get("userRatings", [])),
+                }
+            )
+        return output
 
     def get_all_media_ratings(self) -> list[UserMediaRatingRecord]:
         output: list[UserMediaRatingRecord] = []
