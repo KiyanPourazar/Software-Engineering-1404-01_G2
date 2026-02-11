@@ -14,6 +14,7 @@ from .contracts import (
 from .data_provider import DataProvider
 from team5.models import Team5MediaRating
 from .ml.recommender_model import RecommenderModel
+from team5.exceptions.not_trained_yet_exception import NotTrainedYetException
 
 
 class RecommendationService:
@@ -88,6 +89,40 @@ class RecommendationService:
                 break
             merged.append(item)
         return merged[:limit]
+    
+    def get_personalized_v2(self, user_id: str, limit: int = DEFAULT_LIMIT) -> list[MediaRecord]:
+        try:
+            recommended_media_ids = self.personalized_media_recommender_model.recommend(user_id, limit, show_already_seen_items=True)
+            if not recommended_media_ids:
+                return []
+        except NotTrainedYetException as e:
+            return []
+        
+        media_by_id = {
+            item["mediaId"]: dict(item)
+            for item in self.provider.get_media()
+        }
+
+        ratings_by_media = self._get_db_ratings_by_media(user_id)
+
+        results: list[dict] = []
+        for media_id in recommended_media_ids:
+            item = media_by_id.get(media_id)
+            if not item:
+                continue
+
+            # Attach user rate if exists
+            user_rate = ratings_by_media.get(media_id)
+            if user_rate is not None:
+                item["userRate"] = float(user_rate)
+
+            item["matchReason"] = "ml_personalized"
+            results.append(item)
+
+            if len(results) >= limit:
+                break
+
+        return results
 
     def get_user_interest_distribution(self, user_id: str) -> dict:
         place_by_id = {place["placeId"]: place for place in self.provider.get_all_places()}
