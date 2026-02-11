@@ -18,18 +18,6 @@
       const API_BASE = window.location.port === "8000" ? "" : "http://127.0.0.1:8000";
       const FEEDBACK_ACTIONS = new Set(["popular", "personalized", "nearest"]);
 
-      const PLACE_IMAGES = {
-        "tehran-milad-tower": "../../static/team5/styles/imgs/milad.jpg",
-        "tehran-azadi-tower": "../../static/team5/styles/imgs/azadi.jpg",
-        "tehran-golestan-palace": "../../static/team5/styles/imgs/golestan.jpg",
-        "isfahan-naqsh-jahan": "../../static/team5/styles/imgs/naqhshe.jpg",
-        "isfahan-si-o-se-pol": "../../static/team5/styles/imgs/siosepol.jpg",
-        "shiraz-hafezieh": "../../static/team5/styles/imgs/hafez.jpg",
-        "shiraz-pasargadae": "../../static/team5/styles/imgs/pasargad.jpg",
-        "tabriz-arg": "../../static/team5/styles/imgs/elgoli.jpg",
-        "mashhad-haram": "../../static/team5/styles/imgs/haram.jpg",
-      };
-
       const ACTION_LABELS = {
         users: "Users",
         cities: "Cities",
@@ -316,7 +304,6 @@
           <main className="container">
             <header className="page-header page-header-modern">
               <h1>Team5 Recommendation Service</h1>
-              <p>نسخه React - پیشنهادهای Popular, Personalized و Your Nearest براساس IP</p>
             </header>
 
             <section className="panel">
@@ -392,15 +379,6 @@
               </section>
             ) : null}
 
-            <section className="panel panel-note">
-              <h2>راهنما</h2>
-              <ul>
-                <li>برای Personalized و Interests مقدار <code>User ID</code> را تنظیم کن.</li>
-                <li>در <code>Your Nearest</code> ابتدا IP بررسی می‌شود؛ اگر resolve نشد از <code>City ID</code> استفاده می‌شود.</li>
-                <li>برای Places by City مقدار <code>City ID</code> را تنظیم کن (مثل: tehran, shiraz).</li>
-              </ul>
-            </section>
-
             <div className="footer">
               <a href="/" className="back-btn">بازگشت به داشبورد اصلی</a>
             </div>
@@ -440,37 +418,75 @@
       }
 
       function MediaCard({ item, place, citiesById, shineCards, dislikeFlashCards }) {
-        const placeId = item.placeId || item.media?.placeId || "";
+        const mediaSource = item.media && typeof item.media === "object" ? item.media : item;
+        const placeId = item.placeId || mediaSource.placeId || "";
         const cityName = place ? citiesById[place.cityId] || place.cityId : "-";
-        const placeName = place?.placeName || item.placeName || item.title || item.mediaId || "Content";
-        const avgRate = Number(item.overallRate ?? item.media?.overallRate);
+        const placeName = place?.placeName || mediaSource.placeName || mediaSource.title || mediaSource.mediaId || item.mediaId || "Content";
+        const authorName = (mediaSource.authorDisplayName || "Team5 Traveler").trim();
+        const userName = `@${authorName.replace(/\s+/g, "").toLowerCase() || "team5user"}`;
+        const locationText = `${placeName} • ${cityName}`;
+        const captionText = (mediaSource.caption || "").trim() || "این پست بدون کپشن ثبت شده است.";
+        const avgRate = Number(item.overallRate ?? mediaSource.overallRate);
         const userRate = Number(item.userRate ?? item.rate);
+        const hasUserRate = Number.isFinite(userRate);
         const avgText = Number.isFinite(avgRate) ? avgRate.toFixed(2) : "-";
-        const userText = Number.isFinite(userRate) ? userRate.toFixed(1) : "-";
+        const userText = hasUserRate ? userRate.toFixed(1) : "ثبت نشده";
         const reason = item.matchReason ? REASON_LABELS[item.matchReason] || item.matchReason : "";
-        const image = PLACE_IMAGES[placeId] || `https://source.unsplash.com/800x450/?iran,travel,${encodeURIComponent(placeName)}`;
+        const image = (mediaSource.mediaImageUrl || "").trim();
+        const hasImage = Boolean(image);
+        const initials = authorName
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part[0].toUpperCase())
+          .join("") || "TU";
 
         return (
-          <article className={`card card-modern ${shineCards ? "shine" : ""} ${dislikeFlashCards ? "dislike-flash" : ""}`}>
-            <div className="card-image-wrap">
-              <img className="card-image" src={image} alt={placeName} loading="lazy" />
-              {reason ? <span className="chip">{reason}</span> : null}
+          <article className={`card card-modern ${shineCards ? "shine" : ""} ${dislikeFlashCards ? "dislike-flash" : ""} ${!hasImage ? "text-only" : ""}`}>
+            <div className="post-header">
+              <div className="author-avatar">{initials}</div>
+              <div className="author-meta">
+                <p className="author-name">{authorName}</p>
+                <p className="author-username">{userName}</p>
+                <p className="author-location">{locationText}</p>
+              </div>
             </div>
-            <div className="card-top">
-              <h3 className="place-name">{placeName}</h3>
-              <p className="city-name">{cityName}</p>
-            </div>
+            {hasImage ? (
+              <div className="card-image-wrap">
+                <img className="card-image" src={image} alt={placeName} loading="lazy" />
+                {reason ? <span className="chip">{reason}</span> : null}
+              </div>
+            ) : reason ? (
+              <span className="chip chip-inline">{reason}</span>
+            ) : null}
+            <p className="caption-text">{captionText}</p>
             <div className="stats">
               <div className="stat">
                 <span className="label">میانگین</span>
                 <span className="value">{avgText}</span>
+                <StarRating value={avgRate} />
               </div>
               <div className="stat">
                 <span className="label">امتیاز کاربر</span>
                 <span className="value user">{userText}</span>
+                <StarRating value={userRate} muted={!hasUserRate} />
               </div>
             </div>
           </article>
+        );
+      }
+
+      function StarRating({ value, muted = false }) {
+        const numericValue = Number.isFinite(value) ? Math.max(0, Math.min(5, value)) : 0;
+        const filledCount = Math.round(numericValue);
+        return (
+          <div className={`stars ${muted ? "muted" : ""}`} aria-label={`rating ${numericValue} out of 5`}>
+            {[0, 1, 2, 3, 4].map((idx) => (
+              <span key={idx} className={idx < filledCount ? "star filled" : "star"}>
+                {idx < filledCount ? "★" : "☆"}
+              </span>
+            ))}
+          </div>
         );
       }
 

@@ -33,6 +33,9 @@ class Team5Media(models.Model):
     place = models.ForeignKey(Team5Place, on_delete=models.CASCADE, related_name="media")
     title = models.CharField(max_length=255)
     caption = models.TextField(blank=True, default="")
+    author_display_name = models.CharField(max_length=255, blank=True, default="")
+    author_user_id = models.UUIDField(null=True, blank=True, db_index=True)
+    media_image_url = models.CharField(max_length=500, blank=True, default="")
 
     class Meta:
         indexes = [models.Index(fields=["place"])]

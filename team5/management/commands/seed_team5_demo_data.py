@@ -149,6 +149,8 @@ class Command(BaseCommand):
                 )
                 total_ratings += 1
 
+        self._assign_media_authors_and_content()
+
         total_users = User.objects.count()
         total_media = Team5Media.objects.count()
         total_places = Team5Place.objects.count()
@@ -221,6 +223,68 @@ class Command(BaseCommand):
                 )
                 created += 1 if was_created else 0
         self.stdout.write(self.style.NOTICE(f"Synthetic media created: {created}"))
+
+    def _assign_media_authors_and_content(self):
+        users = list(User.objects.filter(is_active=True).order_by("date_joined", "id"))
+        if not users:
+            self.stdout.write(self.style.WARNING("No active users found to assign as media authors."))
+            return
+
+        media_rows = list(Team5Media.objects.select_related("place__city").all())
+        updated = 0
+        for media in media_rows:
+            user = random.choice(users)
+            media.author_user_id = user.id
+            media.author_display_name = self._english_display_name(user)
+            media.caption = self._build_persian_caption(media.place.place_name)
+            media.media_image_url = self._pick_media_image_url(media.place.place_id)
+            media.save(
+                update_fields=[
+                    "author_user_id",
+                    "author_display_name",
+                    "caption",
+                    "media_image_url",
+                ]
+            )
+            updated += 1
+        self.stdout.write(self.style.SUCCESS(f"Media posts enriched with author/image/caption: {updated}"))
+
+    def _english_display_name(self, user) -> str:
+        first_name = (user.first_name or "").strip()
+        last_name = (user.last_name or "").strip()
+        full_name = f"{first_name} {last_name}".strip()
+        if full_name:
+            return full_name
+        local_part = (user.email or "").split("@")[0].replace(".", " ").replace("_", " ").strip()
+        return local_part.title() if local_part else "Team5 Traveler"
+
+    def _build_persian_caption(self, place_name: str) -> str:
+        templates = [
+            f"امروز به {place_name} رفتم؛ فضا خیلی دلنشین بود و حس خوبی گرفتم.",
+            f"نمای این بخش از {place_name} واقعاً دیدنی بود و ارزش بازدید داشت.",
+            f"اگر دنبال یک تجربه متفاوت هستید، {place_name} انتخاب خیلی خوبی است.",
+            f"این عکس رو از {place_name} گرفتم؛ معماری و حال و هوای اینجا فوق العاده بود.",
+            f"به نظرم {place_name} از اون جاهاییه که باید حداقل یک بار از نزدیک دید.",
+        ]
+        return random.choice(templates)
+
+    def _pick_media_image_url(self, place_id: str) -> str:
+        # About one-third of posts are text-only and intentionally have no image.
+        if random.random() < 0.34:
+            return ""
+
+        image_map = {
+            "tehran-milad-tower": "/static/team5/styles/imgs/milad.jpg",
+            "tehran-azadi-tower": "/static/team5/styles/imgs/azadi.jpg",
+            "tehran-golestan-palace": "/static/team5/styles/imgs/golestan.jpg",
+            "isfahan-naqsh-jahan": "/static/team5/styles/imgs/naqhshe.jpg",
+            "isfahan-si-o-se-pol": "/static/team5/styles/imgs/siosepol.jpg",
+            "shiraz-hafezieh": "/static/team5/styles/imgs/hafez.jpg",
+            "shiraz-pasargadae": "/static/team5/styles/imgs/pasargad.jpg",
+            "tabriz-arg": "/static/team5/styles/imgs/elgoli.jpg",
+            "mashhad-haram": "/static/team5/styles/imgs/haram.jpg",
+        }
+        return image_map.get(place_id, "")
 
     def _build_synthetic_profiles(self, count: int) -> list[DemoProfile]:
         if count <= 0:
