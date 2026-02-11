@@ -1,31 +1,16 @@
+version: '3.8'
+
 services:
-  gateway:
-    image: nginx:alpine
-    ports:
-      - "${TEAM_PORT}:80"
+  team5_app:
+    container_name: team5_container
+    build:
+      context: ../
+      dockerfile: team5/Dockerfile
+    command: python manage.py runserver 0.0.0.0:8000
     volumes:
-      - ./gateway.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../:/app
+    ports:
+      - "8005:8000"
     environment:
-      - CORE_BASE_URL=http://core:8000
-    networks:
-      - app404
-  #   depends_on:
-  #     - frontend
-  #     - backend
-
-  # frontend:
-  #   image: traefik/whoami
-  #   command: ["-port=5173"]
-  #   networks:
-  #     - app404
-
-  # backend:
-  #   image: traefik/whoami
-  #   command: ["-port=3000"]
-  #   networks:
-  #     - app404
-
-networks:
-  app404:
-    external: true
-    name: app404_net
+      - DEBUG=1
+      - TEAM_APPS=team5
