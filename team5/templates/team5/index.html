@@ -16,7 +16,7 @@
       const { useEffect, useMemo, useRef, useState } = React;
 
       const API_BASE = window.location.port === "8000" ? "" : "http://127.0.0.1:8000";
-      const FEEDBACK_ACTIONS = new Set(["popular", "personalized", "nearest", "weather"]);
+      const FEEDBACK_ACTIONS = new Set(["popular", "personalized", "nearest", "weather", "occasions"]);
 
       const ACTION_LABELS = {
         users: "Users",
@@ -26,6 +26,7 @@
         popular: "Popular",
         nearest: "Your Nearest",
         weather: "Weather",
+        occasions: "Occasions",
         personalized: "Personalized",
         interests: "Interests",
         "user-ratings": "User Ratings",
@@ -41,6 +42,14 @@
         weather_now: "پیشنهاد متناسب با فصل فعلی",
         weather_snow: "پیشنهاد برای هوای سرد و برفی",
         weather_summer: "پیشنهاد برای روزهای گرم تابستان",
+        occasion_bahman22: "پیشنهاد ویژه 22 بهمن",
+        occasion_nowruz: "پیشنهاد ویژه نوروز",
+        occasion_yalda: "پیشنهاد ویژه شب یلدا",
+        occasion_christmas: "پیشنهاد ویژه کریسمس",
+        occasion_imammahdi: "پیشنهاد ویژه نیمه‌شعبان",
+        occasion_chaharshanbe_soori: "پیشنهاد ویژه چهارشنبه‌سوری",
+        occasion_sizdah_bedar: "پیشنهاد ویژه سیزده‌بدر",
+        occasion_mehregan: "پیشنهاد ویژه مهرگان",
       };
 
       function api(path) {
@@ -183,6 +192,8 @@
               return api(`/team5/api/recommendations/nearest/?limit=${safeLimit}&cityId=${encodedCity}&userId=${encodedUser}`);
             case "weather":
               return api(`/team5/api/recommendations/weather/?limit=${safeLimit}&userId=${encodedUser}`);
+            case "occasions":
+              return api(`/team5/api/recommendations/occasions/?limit=${safeLimit}&userId=${encodedUser}`);
             case "personalized":
               return api(`/team5/api/recommendations/personalized/?userId=${encodedUser}&limit=${safeLimit}`);
             case "interests":
@@ -449,6 +460,7 @@
         const userText = hasUserRate ? userRate.toFixed(1) : "ثبت نشده";
         const reason = item.matchReason ? REASON_LABELS[item.matchReason] || item.matchReason : "";
         const image = (mediaSource.mediaImageUrl || "").trim();
+        const createdAt = (mediaSource.createdAt || item.createdAt || "").trim();
         const hasImage = Boolean(image);
         const initials = authorName
           .split(/\s+/)
@@ -465,6 +477,7 @@
                 <p className="author-name">{authorName}</p>
                 <p className="author-username">{userName}</p>
                 <p className="author-location">{locationText}</p>
+                {createdAt ? <p className="author-date">📅 {createdAt}</p> : null}
               </div>
             </div>
             {hasImage ? (

@@ -36,6 +36,7 @@ class Team5Media(models.Model):
     author_display_name = models.CharField(max_length=255, blank=True, default="")
     author_user_id = models.UUIDField(null=True, blank=True, db_index=True)
     media_image_url = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         indexes = [models.Index(fields=["place"])]

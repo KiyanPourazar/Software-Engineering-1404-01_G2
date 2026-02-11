@@ -55,6 +55,7 @@ class DatabaseProvider(DataProvider):
                     "caption": row.caption,
                     "authorDisplayName": row.author_display_name,
                     "mediaImageUrl": row.media_image_url,
+                    "createdAt": row.created_at.strftime("%Y-%m-%d") if row.created_at else "",
                     "overallRate": item_stats["overallRate"],
                     "ratingsCount": item_stats["ratingsCount"],
                     "userRatings": [],

@@ -1,7 +1,8 @@
 """Recommendation scoring for popular and personalized feeds."""
 
 from collections import defaultdict
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from .contracts import (
@@ -13,6 +14,7 @@ from .contracts import (
     PlaceRecord,
 )
 from .data_provider import DataProvider
+from .occasions_catalog import OCCASION_MEDIA_IDS_BY_OCCASION
 from team5.models import Team5MediaRating
 
 try:
@@ -177,6 +179,47 @@ class RecommendationService:
             "kind": "weather",
             "today": now.strftime("%Y-%m-%d"),
             "season": season_name,
+            "sections": sections,
+        }
+
+    def get_occasion_recommendations(
+        self,
+        *,
+        limit: int = DEFAULT_LIMIT,
+        user_id: str | None = None,
+        excluded_media_ids: set[str] | None = None,
+    ) -> dict:
+        now = datetime.now().date()
+        excluded = excluded_media_ids or set()
+        selected: list[OccasionDefinition] = []
+
+        for definition in OCCASION_DEFINITIONS:
+            if definition.always_show or _is_occasion_near_today(definition, now):
+                selected.append(definition)
+
+        # Keep stable order and avoid duplicate sections.
+        deduped: list[OccasionDefinition] = []
+        seen_ids: set[str] = set()
+        for definition in selected:
+            if definition.id in seen_ids:
+                continue
+            deduped.append(definition)
+            seen_ids.add(definition.id)
+
+        sections = [
+            self._build_occasion_section(
+                definition=definition,
+                user_id=user_id,
+                limit=limit,
+                excluded_media_ids=excluded,
+            )
+            for definition in deduped
+        ]
+        sections = [section for section in sections if section.get("items")]
+
+        return {
+            "kind": "occasions",
+            "today": now.strftime("%Y-%m-%d"),
             "sections": sections,
         }
 
@@ -412,6 +455,52 @@ class RecommendationService:
             items.sort(key=lambda item: float(item.get("mlScore", -1)), reverse=True)
         return items[:limit]
 
+    def _build_occasion_section(
+        self,
+        *,
+        definition: "OccasionDefinition",
+        user_id: str | None,
+        limit: int,
+        excluded_media_ids: set[str],
+    ) -> dict:
+        all_media = [dict(item) for item in self.provider.get_media()]
+        media_by_id = {item["mediaId"]: item for item in all_media}
+        curated_ids = OCCASION_MEDIA_IDS_BY_OCCASION.get(definition.id, [])
+        curated_items: list[dict] = []
+        seen_media_ids: set[str] = set()
+
+        for media_id in curated_ids:
+            item = media_by_id.get(media_id)
+            if not item or media_id in excluded_media_ids:
+                continue
+            prepared = dict(item)
+            prepared["matchReason"] = definition.reason
+            curated_items.append(prepared)
+            seen_media_ids.add(media_id)
+            if len(curated_items) >= limit:
+                break
+
+        fallback_items: list[dict] = []
+        if len(curated_items) < limit:
+            filtered = self._filter_media_by_city_ids(
+                city_ids=definition.city_ids,
+                excluded_media_ids=excluded_media_ids.union(seen_media_ids),
+            )
+            fallback_items = self._rank_weather_candidates(
+                filtered,
+                user_id=user_id,
+                reason=definition.reason,
+                limit=max(0, limit - len(curated_items)),
+            )
+
+        items = (curated_items + fallback_items)[:limit]
+        return {
+            "id": definition.id,
+            "title": definition.title,
+            "subtitle": definition.subtitle,
+            "items": items,
+        }
+
     def _get_db_ratings_by_media(self, user_id: str) -> dict[str, float]:
         user_uuid = _parse_uuid(user_id)
         if user_uuid is None:
@@ -624,3 +713,107 @@ def _season_from_month(month: int) -> tuple[str, str]:
     if month in {6, 7, 8}:
         return "تابستان", "summer"
     return "پاییز", "autumn"
+
+
+@dataclass(frozen=True)
+class OccasionDefinition:
+    id: str
+    title: str
+    subtitle: str
+    reason: str
+    city_ids: list[str]
+    month: int
+    day: int
+    always_show: bool = False
+
+
+OCCASION_DEFINITIONS: list[OccasionDefinition] = [
+    OccasionDefinition(
+        id="bahman22",
+        title="22 بهمن",
+        subtitle="حس همبستگی و حال‌وهوای ملی در جاهای شاخص تهران.",
+        reason="occasion_bahman22",
+        city_ids=["tehran"],
+        month=2,
+        day=11,
+        always_show=True,
+    ),
+    OccasionDefinition(
+        id="nowruz",
+        title="نوروز",
+        subtitle="پیشنهادهایی برای آغاز سال نو و حال‌وهوای بهاری در ایران.",
+        reason="occasion_nowruz",
+        city_ids=["shiraz", "isfahan", "tehran"],
+        month=3,
+        day=21,
+        always_show=True,
+    ),
+    OccasionDefinition(
+        id="yalda",
+        title="شب یلدا",
+        subtitle="برای بلندترین شب سال؛ حس جمع خانوادگی، شعر و خاطره.",
+        reason="occasion_yalda",
+        city_ids=["tehran", "isfahan", "shiraz"],
+        month=12,
+        day=21,
+        always_show=True,
+    ),
+    OccasionDefinition(
+        id="christmas",
+        title="کریسمس",
+        subtitle="پیشنهادهایی از فضاهای حال‌وهوادار کریسمس در تهران و اصفهان.",
+        reason="occasion_christmas",
+        city_ids=["tehran", "isfahan"],
+        month=12,
+        day=25,
+        always_show=True,
+    ),
+    OccasionDefinition(
+        id="imammahdi",
+        title="تولد امام زمان (نیمه‌شعبان)",
+        subtitle="فضاهای جشن و معنویت برای این مناسبت عزیز.",
+        reason="occasion_imammahdi",
+        city_ids=["mashhad", "tehran"],
+        month=2,
+        day=15,
+        always_show=True,
+    ),
+    OccasionDefinition(
+        id="chaharshanbe_soori",
+        title="چهارشنبه‌سوری",
+        subtitle="حال‌وهوای شب‌های نزدیک نوروز و شور جمعی مردم.",
+        reason="occasion_chaharshanbe_soori",
+        city_ids=["isfahan", "tehran", "shiraz"],
+        month=3,
+        day=18,
+    ),
+    OccasionDefinition(
+        id="sizdah_bedar",
+        title="سیزده‌بدر",
+        subtitle="برای روز طبیعت و پیک‌نیک‌های بهاری در فضای باز.",
+        reason="occasion_sizdah_bedar",
+        city_ids=["tehran", "shiraz", "isfahan", "mashhad"],
+        month=4,
+        day=2,
+    ),
+    OccasionDefinition(
+        id="mehregan",
+        title="مهرگان",
+        subtitle="یک حال‌وهوای پاییزی و فرهنگی برای سفرهای شهری.",
+        reason="occasion_mehregan",
+        city_ids=["tehran", "shiraz", "isfahan"],
+        month=10,
+        day=2,
+    ),
+]
+
+
+def _is_occasion_near_today(definition: OccasionDefinition, today: date, window_days: int = 45) -> bool:
+    candidates: list[date] = []
+    for year_delta in (-1, 0, 1):
+        y = today.year + year_delta
+        try:
+            candidates.append(date(y, definition.month, definition.day))
+        except ValueError:
+            continue
+    return any(abs((candidate - today).days) <= window_days for candidate in candidates)

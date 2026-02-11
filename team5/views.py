@@ -12,11 +12,12 @@ from .serializers import Team5Serializer
 from .services.contracts import DEFAULT_LIMIT
 from .services.db_provider import DatabaseProvider
 from .services.location_service import get_client_ip, resolve_client_city
+from .services.occasions_catalog import ensure_occasion_media_seeded
 from .services.recommendation_service import RecommendationService
 
 # Constants
 TEAM_NAME = "team5"
-FEEDBACK_ACTIONS = {"popular", "personalized", "nearest", "weather"}
+FEEDBACK_ACTIONS = {"popular", "personalized", "nearest", "weather", "occasions"}
 User = get_user_model()
 provider = DatabaseProvider()
 recommendation_service = RecommendationService(provider)
@@ -105,6 +106,23 @@ def get_weather_recommendations(request):
     user_id = request.GET.get("userId")
     excluded_media_ids = _load_excluded_media_ids(user_id=user_id, action="weather")
     payload = recommendation_service.get_weather_recommendations(
+        limit=limit,
+        user_id=user_id,
+        excluded_media_ids=excluded_media_ids,
+    )
+    payload["limit"] = limit
+    payload["userId"] = user_id
+    payload["count"] = sum(len(section.get("items") or []) for section in payload.get("sections") or [])
+    return JsonResponse(payload)
+
+
+@require_GET
+def get_occasion_recommendations(request):
+    ensure_occasion_media_seeded()
+    limit = _parse_limit(request)
+    user_id = request.GET.get("userId")
+    excluded_media_ids = _load_excluded_media_ids(user_id=user_id, action="occasions")
+    payload = recommendation_service.get_occasion_recommendations(
         limit=limit,
         user_id=user_id,
         excluded_media_ids=excluded_media_ids,

@@ -34,6 +34,7 @@ class MediaRecord(TypedDict):
     caption: str
     authorDisplayName: str
     mediaImageUrl: str
+    createdAt: str
     overallRate: float
     ratingsCount: int
     userRatings: list[UserRatingRecord]

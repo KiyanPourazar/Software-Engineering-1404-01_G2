@@ -249,6 +249,12 @@ pre {
   color: #7b8f81;
 }
 
+.author-date {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: #8da194;
+}
+
 .caption-text {
   margin: 8px 0 10px;
   font-size: 14px;
