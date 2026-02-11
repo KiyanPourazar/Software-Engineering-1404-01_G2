@@ -91,7 +91,7 @@ class DatabaseProvider(DataProvider):
             if media is None:
                 continue  # skip invalid ratings if any
 
-            media_place_rate = text_sentiment(media["title"])
+            media_place_rate = text_sentiment.sentiment(media["title"])
             user_media_rate = r.rate - 2.5
             user_place_rate = 2.5 + user_media_rate * media_place_rate
 

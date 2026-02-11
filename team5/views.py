@@ -162,7 +162,7 @@ def get_user_ratings(request, user_id: str):
 @require_POST
 def train(request):
     recommendation_service.train()
-    return JsonResponse()
+    return JsonResponse({})
 
 
 def _parse_limit(request) -> int:
