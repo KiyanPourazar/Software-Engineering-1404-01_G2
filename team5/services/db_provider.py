@@ -91,13 +91,14 @@ class DatabaseProvider(DataProvider):
             if media is None:
                 continue  # skip invalid ratings if any
 
-            sentiment_score = text_sentiment(media["title"])
-            rating = r.rate * sentiment_score
+            media_place_rate = text_sentiment(media["title"])
+            user_media_rate = r.rate - 2.5
+            user_place_rate = 2.5 + user_media_rate * media_place_rate
 
             output.append({
                 "userId": r.user_id,
                 "placeId": media["place_id"],
-                "rate": rating,
+                "rate": user_place_rate,
             })
 
         return output

@@ -29,7 +29,7 @@ class RecommendationService:
         self.popular_min_overall_rate = popular_min_overall_rate
         self.popular_min_votes = popular_min_votes
         self.personalized_min_user_rate = personalized_min_user_rate
-        self.personalized_place_recommender_model = RecommenderModel((-5, 5))
+        self.personalized_place_recommender_model = RecommenderModel((0, 5))
         self.personalized_media_recommender_model = RecommenderModel((0, 5))
 
     def get_popular(self, limit: int = DEFAULT_LIMIT) -> list[MediaRecord]:
