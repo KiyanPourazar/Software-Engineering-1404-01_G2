@@ -4,7 +4,7 @@ from django.db.models import Avg, Count
 
 from team5.models import Team5City, Team5Media, Team5MediaRating, Team5Place
 
-from .contracts import CityRecord, MediaRecord, PlaceRecord, UserMediaRatingRecord, UserPlaceRatingRecord, UserCityRatingRecord
+from .contracts import CityRecord, MediaRecord, PlaceRecord, UserMediaRatingRecord, UserPlaceRatingRecord
 from .data_provider import DataProvider
 from .ml.text_sentiment import TextSentiment
 
@@ -59,21 +59,20 @@ class DatabaseProvider(DataProvider):
                 }
             )
         return output
-    
+
     def get_all_media_ratings(self) -> list[UserMediaRatingRecord]:
         rows = Team5MediaRating.objects.all()
-
         output: list[UserMediaRatingRecord] = []
         for row in rows:
             output.append(
                 {
-                    "userId": row.user_id,
+                    "userId": str(row.user_id),
                     "mediaId": row.media_id,
-                    "rate": row.rate
+                    "rate": float(row.rate),
                 }
             )
         return output
-    
+
     def get_all_place_ratings(self) -> list[UserPlaceRatingRecord]:
         media_map = {
             m.media_id: {
@@ -84,25 +83,25 @@ class DatabaseProvider(DataProvider):
         }
         ratings = Team5MediaRating.objects.all()
         text_sentiment = TextSentiment()
+        output: list[UserPlaceRatingRecord] = []
 
-        output = []
-        for r in ratings:
-            media = media_map.get(r.media_id)
+        for rating in ratings:
+            media = media_map.get(rating.media_id)
             if media is None:
-                continue  # skip invalid ratings if any
+                continue
 
             media_place_rate = text_sentiment.sentiment(media["title"])
-            user_media_rate = r.rate - 2.5
+            user_media_rate = rating.rate - 2.5
             user_place_rate = 2.5 + user_media_rate * media_place_rate
 
-            output.append({
-                "userId": r.user_id,
-                "placeId": media["place_id"],
-                "rate": user_place_rate,
-            })
-
+            output.append(
+                {
+                    "userId": str(rating.user_id),
+                    "placeId": media["place_id"],
+                    "rate": float(user_place_rate),
+                }
+            )
         return output
-
 
     def _place_to_record(self, place: Team5Place) -> PlaceRecord:
         return {

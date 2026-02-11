@@ -6,7 +6,3 @@ mysqlclient
 PyMySQL
 gunicorn
 whitenoise
-numpy==1.26.4
-scikit-surprise==1.1.4
-pandas
-shekar
