@@ -4,8 +4,9 @@ from django.db.models import Avg, Count
 
 from team5.models import Team5City, Team5Media, Team5MediaRating, Team5Place
 
-from .contracts import CityRecord, MediaRecord, PlaceRecord
+from .contracts import CityRecord, MediaRecord, PlaceRecord, UserMediaRatingRecord, UserPlaceRatingRecord, UserCityRatingRecord
 from .data_provider import DataProvider
+from .ml.text_sentiment import TextSentiment
 
 
 class DatabaseProvider(DataProvider):
@@ -58,6 +59,49 @@ class DatabaseProvider(DataProvider):
                 }
             )
         return output
+    
+    def get_all_media_ratings(self) -> list[UserMediaRatingRecord]:
+        rows = Team5MediaRating.objects.all()
+
+        output: list[UserMediaRatingRecord] = []
+        for row in rows:
+            output.append(
+                {
+                    "userId": row.user_id,
+                    "mediaId": row.media_id,
+                    "rate": row.rate
+                }
+            )
+        return output
+    
+    def get_all_place_ratings(self) -> list[UserPlaceRatingRecord]:
+        media_map = {
+            m.media_id: {
+                "place_id": m.place_id,
+                "title": m.title,
+            }
+            for m in Team5Media.objects.select_related("place").all()
+        }
+        ratings = Team5MediaRating.objects.all()
+        text_sentiment = TextSentiment()
+
+        output = []
+        for r in ratings:
+            media = media_map.get(r.media_id)
+            if media is None:
+                continue  # skip invalid ratings if any
+
+            sentiment_score = text_sentiment(media["title"])
+            rating = r.rate * sentiment_score
+
+            output.append({
+                "userId": r.user_id,
+                "placeId": media["place_id"],
+                "rate": rating,
+            })
+
+        return output
+
 
     def _place_to_record(self, place: Team5Place) -> PlaceRecord:
         return {

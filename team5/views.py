@@ -1,6 +1,6 @@
 from django.http import JsonResponse
 from django.shortcuts import render
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 from django.contrib.auth import get_user_model
 
 from core.auth import api_login_required
@@ -158,6 +158,11 @@ def get_registered_users(request):
 def get_user_ratings(request, user_id: str):
     ratings = recommendation_service.get_user_ratings(user_id=user_id)
     return JsonResponse({"userId": user_id, "count": len(ratings), "items": ratings})
+
+@require_POST
+def train(request):
+    recommendation_service.train()
+    return JsonResponse()
 
 
 def _parse_limit(request) -> int:

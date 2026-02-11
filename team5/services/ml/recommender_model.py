@@ -3,7 +3,7 @@ from surprise import Dataset, Reader, SVD
 from team5.exceptions.not_trained_yet_exception import NotTrainedYetException
 
 class RecommenderModel:
-    def __init__(self, rating_scale: tuple[int, int]=(1, 2), n_factors=20, n_epochs=20, lr_all=0.005, reg_all=0.02):
+    def __init__(self, rating_scale: tuple[int|float, int|float]=(1, 2), n_factors=20, n_epochs=20, lr_all=0.005, reg_all=0.02):
         self.model = None
         self.items = set([])
         self.user_item_rating_matrix = pd.DataFrame()
@@ -14,7 +14,7 @@ class RecommenderModel:
         self.reg_all = reg_all
 
 
-    def train(self, train_data: list[tuple[str, str, int]]):
+    def train(self, train_data: list[tuple[str, str, int|float]]):
         df = pd.DataFrame(train_data, columns=["userID", "itemID", "rating"])
         self.items = self.items.union(set(df["itemID"]))
         self._update_user_item_rating_matrix(df)

@@ -13,6 +13,7 @@ from .contracts import (
 )
 from .data_provider import DataProvider
 from team5.models import Team5MediaRating
+from .ml.recommender_model import RecommenderModel
 
 
 class RecommendationService:
@@ -28,6 +29,8 @@ class RecommendationService:
         self.popular_min_overall_rate = popular_min_overall_rate
         self.popular_min_votes = popular_min_votes
         self.personalized_min_user_rate = personalized_min_user_rate
+        self.personalized_place_recommender_model = RecommenderModel((-5, 5))
+        self.personalized_media_recommender_model = RecommenderModel((0, 5))
 
     def get_popular(self, limit: int = DEFAULT_LIMIT) -> list[MediaRecord]:
         media = [dict(item) for item in self.provider.get_media()]
@@ -226,6 +229,18 @@ class RecommendationService:
             item.media_id: float(item.rate)
             for item in Team5MediaRating.objects.filter(user_id=user_uuid)
         }
+    
+    def train(self):
+        self._train_personalized_place_recommender_model()
+        self._train_personalized_media_recommender_model()
+
+    def _train_personalized_place_recommender_model(self):
+        user_place_ratings = self.provider.get_all_place_ratings()
+        self.personalized_place_recommender_model.train(user_place_ratings)
+
+    def _train_personalized_media_recommender_model(self):
+        user_media_ratings = self.provider.get_all_media_ratings()
+        self.personalized_media_recommender_model.train(user_media_ratings)
 
 
 def _parse_uuid(value: str) -> UUID | None:
