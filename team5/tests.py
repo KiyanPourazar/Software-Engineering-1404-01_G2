@@ -186,3 +186,7 @@ class Team5RecommendationApiTests(TestCase):
         payload = res.json()
         self.assertTrue(any(item["mediaId"] == "m3" for item in payload["highRatedItems"]))
         self.assertTrue(any(item["mediaId"] == "m9" for item in payload["similarItems"]))
+
+    def test_train(self):
+        res = self.client.post("/team5/api/train")
+        self.assertEqual(res.status_code, 200)
