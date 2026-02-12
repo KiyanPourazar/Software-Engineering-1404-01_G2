@@ -15,7 +15,8 @@
     <script type="text/babel">
       const { useEffect, useMemo, useRef, useState } = React;
 
-      const API_BASE = window.location.port === "8000" ? "" : "http://127.0.0.1:8000";
+<!--      const API_BASE = window.location.port === "8000" ? "" : "http://127.0.0.1:8000";-->
+       const API_BASE = "";
       const FEEDBACK_ACTIONS = new Set(["popular", "personalized", "nearest", "weather", "occasions", "random"]);
 
       const ACTION_LABELS = {
