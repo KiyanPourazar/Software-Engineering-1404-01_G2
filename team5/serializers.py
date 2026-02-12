@@ -1,46 +1,28 @@
-import random
-from datetime import datetime, timedelta
-
-
 class Team5Serializer:
     """Handles data transformation for Team5 responses."""
 
     @staticmethod
     def _enrich_media_item(item):
-        """
-        Helper to format media data as social posts, generating fake user info if missing.
-        """
-        # Fake usernames for UI display
-        fake_users = ["ali_traveler", "shiraz_lover", "neg_art", "parsa_guider", "tourist_2024", "iran_gem"]
-
-        # Random date within the last 3 months
-        days_ago = random.randint(1, 90)
-        date_created = (datetime.now() - timedelta(days=days_ago)).strftime("%Y-%m-%d")
-
+        """Normalize media payload to match current frontend card schema."""
+        author_display_name = (item.get("authorDisplayName") or "").strip()
         return {
             "mediaId": item.get("mediaId"),
             "placeId": item.get("placeId"),
-            # Map title and caption to post format
             "title": item.get("title"),
-            "description": item.get("caption") or item.get("description", "No description available."),
-
-            # Author info
-            "author": {
-                "username": item.get("username") or random.choice(fake_users),
-                "avatarUrl": "https://i.pravatar.cc/150?u=" + item.get("mediaId", "1"),  # Random avatar
-            },
-
-            # Publish date
-            "dateCreated": date_created,
-
-            # Ratings
+            "caption": item.get("caption") or item.get("description", ""),
+            "authorDisplayName": author_display_name,
+            "mediaImageUrl": item.get("mediaImageUrl", ""),
+            "createdAt": item.get("createdAt", ""),
             "overallRate": item.get("overallRate"),
-            "stars": int(round(item.get("overallRate", 0))),  # Integer for star display (e.g., 4)
             "ratingsCount": item.get("ratingsCount"),
-
-            # System metadata
+            "userRate": item.get("userRate"),
+            "liked": item.get("liked"),
             "matchReason": item.get("matchReason"),
             "mlScore": item.get("mlScore"),
+            "abVariant": item.get("abVariant"),
+            "abBucket": item.get("abBucket"),
+            "triggerComment": item.get("triggerComment"),
+            "triggerMediaId": item.get("triggerMediaId"),
         }
 
     @staticmethod

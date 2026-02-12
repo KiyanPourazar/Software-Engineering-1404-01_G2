@@ -71,6 +71,35 @@ class Team5MediaRating(models.Model):
         return f"{self.user_email or self.user_id} -> {self.media_id}: {self.rate}"
 
 
+class Team5MediaComment(models.Model):
+    SENTIMENT_CHOICES = [
+        ("positive", "positive"),
+        ("negative", "negative"),
+        ("neutral", "neutral"),
+    ]
+
+    user_id = models.UUIDField(db_index=True)
+    user_email = models.EmailField(blank=True, default="")
+    media_id = models.CharField(max_length=128, db_index=True)
+    body = models.TextField()
+    sentiment_score = models.FloatField(default=0.0)
+    sentiment_label = models.CharField(max_length=16, choices=SENTIMENT_CHOICES, default="neutral", db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user_id", "media_id"], name="team5_unique_user_media_comment")
+        ]
+        indexes = [
+            models.Index(fields=["media_id", "sentiment_label"]),
+            models.Index(fields=["user_id", "sentiment_label"]),
+        ]
+
+    def __str__(self):
+        return f"{self.user_email or self.user_id} comment on {self.media_id} ({self.sentiment_label})"
+
+
 class Team5RecommendationFeedback(models.Model):
     user_id = models.UUIDField(db_index=True)
     action = models.CharField(max_length=32, db_index=True)

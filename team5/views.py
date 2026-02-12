@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from core.auth import api_login_required
-from .models import Team5RecommendationFeedback
+from .models import Team5MediaComment, Team5RecommendationFeedback
 from .serializers import Team5Serializer
 from .services.contracts import DEFAULT_LIMIT
 from .services.db_provider import DatabaseProvider
@@ -51,6 +51,46 @@ def get_media(request):
     user_id = request.GET.get("userId")
     feed = recommendation_service.get_media_feed(user_id=user_id)
     return JsonResponse(feed)
+
+
+@require_GET
+def get_media_comments(request, media_id: str):
+    comments = list(
+        Team5MediaComment.objects.filter(media_id=str(media_id))
+        .order_by("-created_at")
+        .only("user_id", "user_email", "body", "sentiment_label", "sentiment_score", "created_at")
+    )
+    user_ids = [comment.user_id for comment in comments]
+    users = User.objects.filter(id__in=user_ids).only("id", "first_name", "last_name", "email")
+    users_by_id = {user.id: user for user in users}
+
+    def _display_name_for_comment(comment: Team5MediaComment) -> str:
+        user = users_by_id.get(comment.user_id)
+        if user:
+            first_name = (user.first_name or "").strip()
+            last_name = (user.last_name or "").strip()
+            full_name = f"{first_name} {last_name}".strip()
+            if full_name:
+                return full_name
+            if (user.email or "").strip():
+                return user.email.split("@")[0]
+        if (comment.user_email or "").strip():
+            return comment.user_email.split("@")[0]
+        return str(comment.user_id)
+
+    payload = [
+        {
+            "userId": str(comment.user_id),
+            "userEmail": comment.user_email,
+            "userDisplayName": _display_name_for_comment(comment),
+            "body": comment.body,
+            "sentimentLabel": comment.sentiment_label,
+            "sentimentScore": round(float(comment.sentiment_score), 3),
+            "createdAt": comment.created_at.isoformat(),
+        }
+        for comment in comments
+    ]
+    return JsonResponse({"mediaId": media_id, "count": len(payload), "items": payload})
 
 
 @require_GET

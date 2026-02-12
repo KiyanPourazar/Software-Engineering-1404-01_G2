@@ -54,6 +54,7 @@
         occasion_sizdah_bedar: "پیشنهاد ویژه سیزده‌بدر",
         occasion_mehregan: "پیشنهاد ویژه مهرگان",
         random_explore: "پیشنهاد رندوم برای کاربر کنجکاو",
+        comment_positive_signal: "پیشنهاد شده مبنی بر نظر شما",
       };
 
       function api(path) {
@@ -81,6 +82,10 @@
         const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
         const [isFeedbackLocked, setIsFeedbackLocked] = useState(false);
         const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+        const [expandedCommentsByMediaId, setExpandedCommentsByMediaId] = useState({});
+        const [commentsByMediaId, setCommentsByMediaId] = useState({});
+        const [commentsLoadingByMediaId, setCommentsLoadingByMediaId] = useState({});
+        const [commentsErrorByMediaId, setCommentsErrorByMediaId] = useState({});
         const [abVersion, setAbVersion] = useState("AUTO");
         const [abStrategy, setAbStrategy] = useState("personalized");
         const feedbackHideTimerRef = useRef(null);
@@ -337,6 +342,36 @@
           }
         }
 
+        async function toggleComments(mediaId) {
+          const key = String(mediaId || "").trim();
+          if (!key) return;
+          const isOpen = Boolean(expandedCommentsByMediaId[key]);
+          if (isOpen) {
+            setExpandedCommentsByMediaId((prev) => ({ ...prev, [key]: false }));
+            return;
+          }
+
+          setExpandedCommentsByMediaId((prev) => ({ ...prev, [key]: true }));
+          if (Array.isArray(commentsByMediaId[key])) return;
+
+          setCommentsLoadingByMediaId((prev) => ({ ...prev, [key]: true }));
+          setCommentsErrorByMediaId((prev) => ({ ...prev, [key]: "" }));
+          try {
+            const res = await fetch(api(`/team5/api/media/${encodeURIComponent(key)}/comments/`), {
+              credentials: "same-origin",
+            });
+            const payload = await res.json();
+            if (!res.ok) {
+              throw new Error(payload.detail || "خطا در دریافت کامنت‌ها");
+            }
+            setCommentsByMediaId((prev) => ({ ...prev, [key]: Array.isArray(payload.items) ? payload.items : [] }));
+          } catch (error) {
+            setCommentsErrorByMediaId((prev) => ({ ...prev, [key]: String(error) }));
+          } finally {
+            setCommentsLoadingByMediaId((prev) => ({ ...prev, [key]: false }));
+          }
+        }
+
         return (
           <main className="container">
             <header className="page-header page-header-modern">
@@ -423,7 +458,19 @@
                   Strategy: {cardsPayload.metadata.requested_strategy} | Applied: {cardsPayload.metadata.applied_strategy}
                 </p>
               ) : null}
-              <CardsView payload={cardsPayload} lastAction={lastAction} placesById={placesById} citiesById={citiesById} shineCards={shineCards} dislikeFlashCards={dislikeFlashCards} />
+              <CardsView
+                payload={cardsPayload}
+                lastAction={lastAction}
+                placesById={placesById}
+                citiesById={citiesById}
+                shineCards={shineCards}
+                dislikeFlashCards={dislikeFlashCards}
+                expandedCommentsByMediaId={expandedCommentsByMediaId}
+                commentsByMediaId={commentsByMediaId}
+                commentsLoadingByMediaId={commentsLoadingByMediaId}
+                commentsErrorByMediaId={commentsErrorByMediaId}
+                onToggleComments={toggleComments}
+              />
             </section>
 
             {isFeedbackMounted ? (
@@ -448,7 +495,19 @@
         );
       }
 
-      function CardsView({ payload, lastAction, placesById, citiesById, shineCards, dislikeFlashCards }) {
+      function CardsView({
+        payload,
+        lastAction,
+        placesById,
+        citiesById,
+        shineCards,
+        dislikeFlashCards,
+        expandedCommentsByMediaId,
+        commentsByMediaId,
+        commentsLoadingByMediaId,
+        commentsErrorByMediaId,
+        onToggleComments,
+      }) {
         const sections = [];
         if (Array.isArray(payload)) {
           sections.push({ title: ACTION_LABELS[lastAction] || "Items", items: payload });
@@ -483,7 +542,19 @@
                 {section.subtitle ? <p className="reason">{section.subtitle}</p> : null}
                 <div className="cards">
                   {section.items.map((item, index) => (
-                    <MediaCard key={`${item.mediaId || item.placeId || "item"}-${index}`} item={item} place={placesById[item.placeId || item.media?.placeId]} citiesById={citiesById} shineCards={shineCards} dislikeFlashCards={dislikeFlashCards} />
+                    <MediaCard
+                      key={`${item.mediaId || item.placeId || "item"}-${index}`}
+                      item={item}
+                      place={placesById[item.placeId || item.media?.placeId]}
+                      citiesById={citiesById}
+                      shineCards={shineCards}
+                      dislikeFlashCards={dislikeFlashCards}
+                      comments={commentsByMediaId[getMediaIdFromItem(item)] || []}
+                      isCommentsOpen={Boolean(expandedCommentsByMediaId[getMediaIdFromItem(item)])}
+                      isCommentsLoading={Boolean(commentsLoadingByMediaId[getMediaIdFromItem(item)])}
+                      commentsError={commentsErrorByMediaId[getMediaIdFromItem(item)] || ""}
+                      onToggleComments={() => onToggleComments(getMediaIdFromItem(item))}
+                    />
                   ))}
                 </div>
               </React.Fragment>
@@ -492,8 +563,20 @@
         );
       }
 
-      function MediaCard({ item, place, citiesById, shineCards, dislikeFlashCards }) {
+      function MediaCard({
+        item,
+        place,
+        citiesById,
+        shineCards,
+        dislikeFlashCards,
+        comments,
+        isCommentsOpen,
+        isCommentsLoading,
+        commentsError,
+        onToggleComments,
+      }) {
         const mediaSource = item.media && typeof item.media === "object" ? item.media : item;
+        const mediaId = getMediaIdFromItem(item);
         const placeId = item.placeId || mediaSource.placeId || "";
         const cityName = place ? citiesById[place.cityId] || place.cityId : "-";
         const placeName = place?.placeName || mediaSource.placeName || mediaSource.title || mediaSource.mediaId || item.mediaId || "Content";
@@ -507,6 +590,7 @@
         const avgText = Number.isFinite(avgRate) ? avgRate.toFixed(2) : "-";
         const userText = hasUserRate ? userRate.toFixed(1) : "ثبت نشده";
         const reason = item.matchReason ? REASON_LABELS[item.matchReason] || item.matchReason : "";
+        const triggerComment = (item.triggerComment || "").trim();
         const image = (mediaSource.mediaImageUrl || "").trim();
         const createdAt = (mediaSource.createdAt || item.createdAt || "").trim();
         const hasImage = Boolean(image);
@@ -519,6 +603,11 @@
 
         return (
           <article className={`card card-modern ${shineCards ? "shine" : ""} ${dislikeFlashCards ? "dislike-flash" : ""} ${!hasImage ? "text-only" : ""}`}>
+            {mediaId ? (
+              <button type="button" className="comment-toggle-btn" onClick={onToggleComments} aria-expanded={isCommentsOpen}>
+                💬 {isCommentsOpen ? "بستن" : "نظرات"}
+              </button>
+            ) : null}
             <div className="post-header">
               <div className="author-avatar">{initials}</div>
               <div className="author-meta">
@@ -537,6 +626,29 @@
               <span className="chip chip-inline">{reason}</span>
             ) : null}
             <p className="caption-text">{captionText}</p>
+            {triggerComment ? (
+              <p className="reason trigger-comment">💬 نظر شما: {triggerComment}</p>
+            ) : null}
+            {isCommentsOpen ? (
+              <div className="comments-panel">
+                <p className="comments-title">نظرات کاربران</p>
+                {isCommentsLoading ? <p className="comments-hint">در حال دریافت نظرات...</p> : null}
+                {!isCommentsLoading && commentsError ? <p className="comments-error">{commentsError}</p> : null}
+                {!isCommentsLoading && !commentsError && comments.length === 0 ? (
+                  <p className="comments-hint">برای این مدیا نظری ثبت نشده است.</p>
+                ) : null}
+                {!isCommentsLoading && !commentsError && comments.length > 0 ? (
+                  <ul className="comments-list">
+                    {comments.map((comment, idx) => (
+                      <li key={`${comment.userId || "u"}-${idx}`} className={`comment-item ${comment.sentimentLabel || "neutral"}`}>
+                        <span className="comment-head">{comment.userDisplayName || (comment.userEmail || "anonymous").split("@")[0]} • {comment.sentimentLabel || "neutral"}</span>
+                        <p>{comment.body || ""}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
             <div className="stats">
               <div className="stat">
                 <span className="label">میانگین</span>
@@ -588,6 +700,13 @@
         }
 
         return [...new Set(ids)];
+      }
+
+      function getMediaIdFromItem(item) {
+        if (!item || typeof item !== "object") return "";
+        const media = item.media && typeof item.media === "object" ? item.media : null;
+        const mediaId = String(item.mediaId || media?.mediaId || "").trim();
+        return mediaId;
       }
 
       ReactDOM.createRoot(document.getElementById("root")).render(<App />);

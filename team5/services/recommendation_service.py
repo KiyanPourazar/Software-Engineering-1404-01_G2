@@ -16,7 +16,7 @@ from .contracts import (
 )
 from .data_provider import DataProvider
 from .occasions_catalog import OCCASION_MEDIA_IDS_BY_OCCASION
-from team5.models import Team5MediaRating
+from team5.models import Team5MediaComment, Team5MediaRating
 
 try:
     from .ml.recommender_model import RecommenderModel, NotTrainedYetException
@@ -254,9 +254,22 @@ class RecommendationService:
         media_by_id = {item["mediaId"]: item for item in media}
         scored: list[tuple[float, float, int, dict]] = []
         ratings_by_media = self._get_db_ratings_by_media(user_id)
-        excluded = excluded_media_ids or set()
+        comment_signal = self._get_comment_sentiment_signal(user_id=user_id)
+        negative_related_ids = self._expand_related_media_ids(
+            seed_media_ids=comment_signal["negative_media_ids"],
+            media_by_id=media_by_id,
+            max_related_per_seed=10,
+        )
+        excluded = (excluded_media_ids or set()).union(comment_signal["negative_media_ids"]).union(negative_related_ids)
         if not ratings_by_media:
-            return []
+            return self._build_comment_driven_personalized(
+                user_id=user_id,
+                media_by_id=media_by_id,
+                excluded_media_ids=excluded,
+                positive_media_ids=comment_signal["positive_media_ids"],
+                positive_comment_by_media=comment_signal["positive_comment_by_media"],
+                limit=limit,
+            )
 
         for item in media_by_id.values():
             if item["mediaId"] in excluded:
@@ -271,6 +284,15 @@ class RecommendationService:
         scored.sort(key=lambda data: (data[0], data[1], data[2]), reverse=True)
         base_limit = max(1, int(limit * 0.6))
         base_items = [entry[3] for entry in scored[:base_limit]]
+
+        comment_priority_items = self._build_comment_driven_personalized(
+            user_id=user_id,
+            media_by_id=media_by_id,
+            excluded_media_ids=excluded.union({item["mediaId"] for item in base_items}),
+            positive_media_ids=comment_signal["positive_media_ids"],
+            positive_comment_by_media=comment_signal["positive_comment_by_media"],
+            limit=max(1, min(limit, max(2, int(limit * 0.4)))),
+        )
 
         similar_items = self.get_similar_items(
             user_id=user_id,
@@ -287,6 +309,10 @@ class RecommendationService:
         )
 
         merged = list(base_items)
+        for item in comment_priority_items:
+            if len(merged) >= limit:
+                break
+            merged.append(item)
         for item in ml_items:
             if len(merged) >= limit:
                 break
@@ -296,6 +322,130 @@ class RecommendationService:
                 break
             merged.append(item)
         return merged[:limit]
+
+    def _build_comment_driven_personalized(
+        self,
+        *,
+        user_id: str,
+        media_by_id: dict[str, dict],
+        excluded_media_ids: set[str],
+        positive_media_ids: set[str],
+        positive_comment_by_media: dict[str, str],
+        limit: int,
+    ) -> list[dict]:
+        if limit <= 0 or not positive_media_ids:
+            return []
+
+        output: list[dict] = []
+        positive_seed_items: list[dict] = []
+        seed_comment_pairs: list[tuple[str, str]] = []
+        for media_id in positive_media_ids:
+            if media_id in excluded_media_ids:
+                continue
+            base = media_by_id.get(media_id)
+            if not base:
+                continue
+            item = dict(base)
+            item["matchReason"] = "comment_positive_signal"
+            trigger_comment = str(positive_comment_by_media.get(media_id, "")).strip()
+            if trigger_comment:
+                item["triggerComment"] = trigger_comment
+            item["triggerMediaId"] = media_id
+            positive_seed_items.append(item)
+            seed_comment_pairs.append((media_id, trigger_comment))
+            output.append(item)
+            if len(output) >= limit:
+                return output[:limit]
+
+        similar_from_positive = self.get_similar_items(
+            user_id=user_id,
+            based_on_items=positive_seed_items,
+            excluded_media_ids=excluded_media_ids.union({x["mediaId"] for x in output}),
+            limit=max(1, limit - len(output)),
+        )
+        for idx, item in enumerate(similar_from_positive):
+            if len(output) >= limit:
+                break
+            item["matchReason"] = "comment_positive_signal"
+            if seed_comment_pairs:
+                seed_media_id, seed_comment = seed_comment_pairs[idx % len(seed_comment_pairs)]
+                item["triggerMediaId"] = seed_media_id
+                if seed_comment:
+                    item["triggerComment"] = seed_comment
+            output.append(item)
+        return output[:limit]
+
+    def _get_comment_sentiment_signal(self, *, user_id: str) -> dict:
+        user_uuid = _parse_uuid(user_id)
+        if user_uuid is None:
+            return {
+                "positive_media_ids": set(),
+                "negative_media_ids": set(),
+                "positive_comment_by_media": {},
+            }
+
+        rows = (
+            Team5MediaComment.objects.filter(user_id=user_uuid)
+            .only("media_id", "sentiment_label", "body", "updated_at", "created_at")
+            .order_by("-updated_at", "-created_at", "-id")
+        )
+        positive_media_ids: set[str] = set()
+        negative_media_ids: set[str] = set()
+        positive_comment_by_media: dict[str, str] = {}
+        for row in rows:
+            media_id = str(row.media_id)
+            label = str(row.sentiment_label or "").strip().lower()
+            if label == "positive":
+                positive_media_ids.add(media_id)
+                if media_id not in positive_comment_by_media:
+                    positive_comment_by_media[media_id] = str(row.body or "").strip()
+            elif label == "negative":
+                negative_media_ids.add(media_id)
+        return {
+            "positive_media_ids": positive_media_ids,
+            "negative_media_ids": negative_media_ids,
+            "positive_comment_by_media": positive_comment_by_media,
+        }
+
+    def _expand_related_media_ids(
+        self,
+        *,
+        seed_media_ids: set[str],
+        media_by_id: dict[str, dict],
+        max_related_per_seed: int = 10,
+    ) -> set[str]:
+        if not seed_media_ids:
+            return set()
+
+        place_by_id = {place["placeId"]: place for place in self.provider.get_all_places()}
+        all_items = list(media_by_id.values())
+        blocked: set[str] = set()
+
+        for seed_id in seed_media_ids:
+            seed = media_by_id.get(seed_id)
+            if not seed:
+                continue
+            seed_keywords = _extract_keywords(f"{seed.get('title', '')} {seed.get('caption', '')}")
+            seed_place = place_by_id.get(seed.get("placeId"))
+            seed_city = seed_place["cityId"] if seed_place else ""
+            picked = 0
+            for candidate in all_items:
+                candidate_id = str(candidate.get("mediaId"))
+                if not candidate_id or candidate_id == seed_id or candidate_id in blocked:
+                    continue
+                same_place = str(candidate.get("placeId")) == str(seed.get("placeId"))
+                candidate_place = place_by_id.get(candidate.get("placeId"))
+                same_city = bool(candidate_place and seed_city and candidate_place.get("cityId") == seed_city)
+                candidate_keywords = _extract_keywords(
+                    f"{candidate.get('title', '')} {candidate.get('caption', '')}"
+                )
+                has_overlap = bool(seed_keywords.intersection(candidate_keywords))
+                if same_place or same_city or has_overlap:
+                    blocked.add(candidate_id)
+                    picked += 1
+                    if picked >= max_related_per_seed:
+                        break
+        return blocked
 
     def get_user_interest_distribution(self, user_id: str) -> dict:
         place_by_id = {place["placeId"]: place for place in self.provider.get_all_places()}
