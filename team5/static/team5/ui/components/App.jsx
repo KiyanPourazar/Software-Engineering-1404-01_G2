@@ -1,0 +1,433 @@
+window.Team5UI = window.Team5UI || {};
+
+const Team5UI = window.Team5UI;
+const { useEffect, useMemo, useRef, useState } = React;
+
+Team5UI.App = function App() {
+  const [userId, setUserId] = useState("");
+  const [cityId, setCityId] = useState("tehran");
+  const [limit, setLimit] = useState(5);
+  const [users, setUsers] = useState([]);
+  const [jsonOutput, setJsonOutput] = useState("در حال بارگذاری...");
+  const [cardsPayload, setCardsPayload] = useState(null);
+  const [lastAction, setLastAction] = useState("popular");
+  const [placesById, setPlacesById] = useState({});
+  const [citiesById, setCitiesById] = useState({});
+  const [isTraining, setIsTraining] = useState(false);
+  const [trainingMessage, setTrainingMessage] = useState("");
+  const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
+  const [isFeedbackMounted, setIsFeedbackMounted] = useState(false);
+  const [isFeedbackExiting, setIsFeedbackExiting] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [shineCards, setShineCards] = useState(false);
+  const [dislikeFlashCards, setDislikeFlashCards] = useState(false);
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [isFeedbackLocked, setIsFeedbackLocked] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [expandedCommentsByMediaId, setExpandedCommentsByMediaId] = useState({});
+  const [commentsByMediaId, setCommentsByMediaId] = useState({});
+  const [commentsLoadingByMediaId, setCommentsLoadingByMediaId] = useState({});
+  const [commentsErrorByMediaId, setCommentsErrorByMediaId] = useState({});
+  const [abVersion, setAbVersion] = useState("AUTO");
+  const [abStrategy, setAbStrategy] = useState("personalized");
+  const feedbackHideTimerRef = useRef(null);
+
+  const safeLimit = useMemo(() => {
+    const parsed = Number(limit);
+    if (!Number.isFinite(parsed)) return 5;
+    return Math.min(100, Math.max(1, Math.floor(parsed)));
+  }, [limit]);
+
+  const shownMediaIds = useMemo(() => Team5UI.extractShownMediaIds(cardsPayload), [cardsPayload]);
+  const canShowFeedback = Team5UI.FEEDBACK_ACTIONS.has(lastAction) && shownMediaIds.length > 0 && !feedbackSubmitted;
+  const activeAbGroup = useMemo(() => {
+    const group = cardsPayload?.metadata?.ab_test_group;
+    if (group === "A" || group === "B") return group;
+    return abVersion === "AUTO" ? "A" : abVersion;
+  }, [cardsPayload, abVersion]);
+
+  useEffect(() => {
+    loadReferenceData();
+    loadUsers();
+    callAction("popular");
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (feedbackHideTimerRef.current) {
+        window.clearTimeout(feedbackHideTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setFeedbackMessage("");
+    let timerId;
+    let unmountId;
+
+    if (canShowFeedback) {
+      setIsFeedbackMounted(true);
+      setIsFeedbackExiting(false);
+      setShowFeedbackPrompt(false);
+      timerId = window.setTimeout(() => setShowFeedbackPrompt(true), 3000);
+    } else if (isFeedbackMounted) {
+      setShowFeedbackPrompt(false);
+      setIsFeedbackExiting(true);
+      unmountId = window.setTimeout(() => {
+        setIsFeedbackMounted(false);
+        setIsFeedbackExiting(false);
+      }, 360);
+    }
+
+    return () => {
+      if (timerId) window.clearTimeout(timerId);
+      if (unmountId) window.clearTimeout(unmountId);
+    };
+  }, [canShowFeedback, lastAction, jsonOutput]);
+
+  async function loadReferenceData() {
+    try {
+      const res = await fetch(Team5UI.api("/team5/api/cities/"), { credentials: "same-origin" });
+      const cities = await res.json();
+      if (!Array.isArray(cities)) return;
+
+      const cityMap = {};
+      for (const city of cities) {
+        cityMap[city.cityId] = city.cityName;
+      }
+      setCitiesById(cityMap);
+
+      const placeMap = {};
+      await Promise.all(
+        cities.map(async (city) => {
+          try {
+            const placesRes = await fetch(
+              Team5UI.api(`/team5/api/places/city/${encodeURIComponent(city.cityId)}/`),
+              { credentials: "same-origin" }
+            );
+            const places = await placesRes.json();
+            if (Array.isArray(places)) {
+              for (const place of places) placeMap[place.placeId] = place;
+            }
+          } catch (_) {}
+        })
+      );
+      setPlacesById(placeMap);
+    } catch (_) {}
+  }
+
+  async function loadUsers() {
+    const endpoint = Team5UI.api("/team5/api/users/");
+    try {
+      const res = await fetch(endpoint, { credentials: "same-origin" });
+      const data = await res.json();
+      const list = Array.isArray(data.items) ? data.items : [];
+      setUsers(list);
+      if (!userId && list.length) setUserId(list[0].userId);
+    } catch (error) {
+      setJsonOutput(JSON.stringify({ status: "network_error", endpoint, error: String(error) }, null, 2));
+    }
+  }
+
+  function endpointByAction(action) {
+    const encodedUser = encodeURIComponent(userId.trim());
+    const encodedCity = encodeURIComponent(cityId.trim());
+    switch (action) {
+      case "cities":
+        return Team5UI.api("/team5/api/cities/");
+      case "places":
+        return Team5UI.api(`/team5/api/places/city/${encodedCity}/`);
+      case "media":
+        return Team5UI.api(`/team5/api/media/?userId=${encodedUser}`);
+      case "users":
+        return Team5UI.api("/team5/api/users/");
+      case "user-ratings":
+        return Team5UI.api(`/team5/api/users/${encodedUser}/ratings/`);
+      case "popular":
+        return Team5UI.api(`/team5/api/recommendations/popular/?limit=${safeLimit}&userId=${encodedUser}`);
+      case "random":
+        return Team5UI.api(`/team5/api/recommendations/random/?limit=${Math.max(10, safeLimit)}&userId=${encodedUser}`);
+      case "nearest":
+        return Team5UI.api(`/team5/api/recommendations/nearest/?limit=${safeLimit}&cityId=${encodedCity}&userId=${encodedUser}`);
+      case "weather":
+        return Team5UI.api(`/team5/api/recommendations/weather/?limit=${safeLimit}&userId=${encodedUser}`);
+      case "occasions":
+        return Team5UI.api(`/team5/api/recommendations/occasions/?limit=${safeLimit}&userId=${encodedUser}`);
+      case "personalized":
+        return Team5UI.api(`/team5/api/recommendations/personalized/?userId=${encodedUser}&limit=${safeLimit}`);
+      case "interests":
+        return Team5UI.api(`/team5/api/users/${encodedUser}/interests/`);
+      case "ab-recommendations":
+        return Team5UI.api(
+          `/team5/api/recommendations/?userId=${encodedUser}&limit=${safeLimit}&strategy=${encodeURIComponent(abStrategy)}&version=${encodeURIComponent(abVersion)}`
+        );
+      case "ab-summary":
+        return Team5UI.api("/team5/api/recommendations/ab/summary/?days=30");
+      case "ping":
+        return Team5UI.api("/team5/ping/");
+      default:
+        return null;
+    }
+  }
+
+  async function callAction(action) {
+    const endpoint = endpointByAction(action);
+    if (!endpoint) return;
+    setLastAction(action);
+    if (feedbackHideTimerRef.current) {
+      window.clearTimeout(feedbackHideTimerRef.current);
+      feedbackHideTimerRef.current = null;
+    }
+    setIsFeedbackLocked(false);
+    setFeedbackSubmitted(!Team5UI.FEEDBACK_ACTIONS.has(action));
+    setShineCards(false);
+    setDislikeFlashCards(false);
+    try {
+      const res = await fetch(endpoint, { credentials: "same-origin" });
+      const text = await res.text();
+      let payload = text;
+      try {
+        payload = JSON.parse(text);
+      } catch (_) {}
+      setCardsPayload(payload);
+      setJsonOutput(JSON.stringify({ status: res.status, endpoint, data: payload }, null, 2));
+    } catch (error) {
+      setCardsPayload(null);
+      setJsonOutput(JSON.stringify({ status: "network_error", endpoint, error: String(error) }, null, 2));
+    }
+  }
+
+  async function trainModel() {
+    setIsTraining(true);
+    setTrainingMessage("Training started...");
+    const endpoint = Team5UI.api("/team5/api/train");
+    try {
+      const res = await fetch(endpoint, { method: "POST", credentials: "same-origin" });
+      const raw = await res.text();
+      let payload;
+      try {
+        payload = JSON.parse(raw);
+      } catch (_) {
+        throw new Error(`Non-JSON response: ${raw.slice(0, 140)}`);
+      }
+      const statusRes = await fetch(Team5UI.api("/team5/api/ml/status"), { credentials: "same-origin" });
+      const statusPayload = await statusRes.json();
+      setTrainingMessage(
+        `Train: ${payload.trained ? "OK" : "FAILED"} | modelsReady=${statusPayload.modelsReady} | mediaSamples=${statusPayload.mediaRatingsSamples}`
+      );
+      setJsonOutput(JSON.stringify({ status: res.status, endpoint, train: payload, mlStatus: statusPayload }, null, 2));
+    } catch (error) {
+      setTrainingMessage(`Train error: ${String(error)}`);
+    } finally {
+      setIsTraining(false);
+    }
+  }
+
+  async function submitFeedback(liked) {
+    if (!userId.trim()) {
+      setFeedbackMessage("ابتدا یک کاربر انتخاب کن.");
+      return;
+    }
+    if (!canShowFeedback) {
+      setFeedbackMessage("فعلا آیتمی برای ثبت فیدبک وجود ندارد.");
+      return;
+    }
+    setIsSubmittingFeedback(true);
+    try {
+      const endpoint = Team5UI.api("/team5/api/recommendations/feedback/");
+      const res = await fetch(endpoint, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: userId.trim(),
+          action: lastAction,
+          liked,
+          version: activeAbGroup,
+          shownMediaIds: shownMediaIds,
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        setFeedbackMessage(payload.detail || "ثبت فیدبک ناموفق بود.");
+        return;
+      }
+      setFeedbackMessage(
+        liked
+          ? "ممنون از فیدبک مثبت، خوشحالیم خوشت اومده."
+          : "برای دیدن پیشنهادهای جدید، مجدد وارد همین صفحه شوید."
+      );
+      if (liked) {
+        setShineCards(true);
+        window.setTimeout(() => setShineCards(false), 2500);
+      } else {
+        setDislikeFlashCards(true);
+        window.setTimeout(() => setDislikeFlashCards(false), 1700);
+      }
+      setIsFeedbackLocked(true);
+      if (feedbackHideTimerRef.current) {
+        window.clearTimeout(feedbackHideTimerRef.current);
+      }
+      feedbackHideTimerRef.current = window.setTimeout(() => {
+        setFeedbackSubmitted(true);
+        setShowFeedbackPrompt(false);
+        setIsFeedbackLocked(false);
+        feedbackHideTimerRef.current = null;
+      }, 2000);
+    } catch (error) {
+      setFeedbackMessage(`خطا در ثبت فیدبک: ${String(error)}`);
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  }
+
+  async function toggleComments(mediaId) {
+    const key = String(mediaId || "").trim();
+    if (!key) return;
+    const isOpen = Boolean(expandedCommentsByMediaId[key]);
+    if (isOpen) {
+      setExpandedCommentsByMediaId((prev) => ({ ...prev, [key]: false }));
+      return;
+    }
+
+    setExpandedCommentsByMediaId((prev) => ({ ...prev, [key]: true }));
+    if (Array.isArray(commentsByMediaId[key])) return;
+
+    setCommentsLoadingByMediaId((prev) => ({ ...prev, [key]: true }));
+    setCommentsErrorByMediaId((prev) => ({ ...prev, [key]: "" }));
+    try {
+      const res = await fetch(Team5UI.api(`/team5/api/media/${encodeURIComponent(key)}/comments/`), {
+        credentials: "same-origin",
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.detail || "خطا در دریافت کامنت‌ها");
+      setCommentsByMediaId((prev) => ({ ...prev, [key]: Array.isArray(payload.items) ? payload.items : [] }));
+    } catch (error) {
+      setCommentsErrorByMediaId((prev) => ({ ...prev, [key]: String(error) }));
+    } finally {
+      setCommentsLoadingByMediaId((prev) => ({ ...prev, [key]: false }));
+    }
+  }
+
+  return (
+    <main className="container">
+      <header className="page-header page-header-modern">
+        <h1>Team5 Recommendation Service</h1>
+      </header>
+
+      <section className="panel">
+        <h2>تنظیمات</h2>
+        <div className="form-grid">
+          <label>
+            انتخاب کاربر
+            <select value={userId} onChange={(e) => setUserId(e.target.value)}>
+              <option value="">-- انتخاب کن --</option>
+              {users.map((user) => {
+                const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+                return (
+                  <option key={user.userId} value={user.userId}>
+                    {fullName ? `${fullName} - ${user.email}` : `${user.email} - ${user.userId}`}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          <label>
+            User ID
+            <input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="UUID user id" />
+          </label>
+          <label>
+            City ID
+            <input value={cityId} onChange={(e) => setCityId(e.target.value)} placeholder="tehran" />
+          </label>
+          <label>
+            Limit
+            <input type="number" min="1" max="100" value={limit} onChange={(e) => setLimit(e.target.value)} />
+          </label>
+          <label>
+            AB Version
+            <select value={abVersion} onChange={(e) => setAbVersion((e.target.value || "AUTO").toUpperCase())}>
+              <option value="AUTO">AUTO (deterministic split)</option>
+              <option value="A">A (control)</option>
+              <option value="B">B (variant)</option>
+            </select>
+          </label>
+          <label>
+            AB Strategy
+            <select value={abStrategy} onChange={(e) => setAbStrategy(e.target.value)}>
+              <option value="personalized">personalized</option>
+              <option value="popular">popular</option>
+              <option value="nearest">nearest</option>
+              <option value="weather">weather</option>
+              <option value="occasions">occasions</option>
+              <option value="random">random</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>اکشن‌ها</h2>
+        <div className="actions">
+          <button type="button" onClick={loadUsers}>Load Users Dropdown</button>
+          <button type="button" onClick={trainModel} disabled={isTraining}>
+            {isTraining ? "Training..." : "Train Model"}
+          </button>
+          {Object.keys(Team5UI.ACTION_LABELS).map((action) => (
+            <button key={action} type="button" onClick={() => callAction(action)}>
+              {Team5UI.ACTION_LABELS[action]}
+            </button>
+          ))}
+        </div>
+        {trainingMessage ? <p className="reason">{trainingMessage}</p> : null}
+      </section>
+
+      <section className="panel">
+        <h2>خروجی JSON</h2>
+        <pre>{jsonOutput}</pre>
+      </section>
+
+      <section className="panel">
+        <h2>نمایش کارت‌ها</h2>
+        {cardsPayload?.metadata ? (
+          <p className="reason">
+            AB Group: {cardsPayload.metadata.ab_test_group} | Requested: {cardsPayload.metadata.requested_version} |
+            Strategy: {cardsPayload.metadata.requested_strategy} | Applied: {cardsPayload.metadata.applied_strategy}
+          </p>
+        ) : null}
+        <Team5UI.CardsView
+          payload={cardsPayload}
+          lastAction={lastAction}
+          placesById={placesById}
+          citiesById={citiesById}
+          shineCards={shineCards}
+          dislikeFlashCards={dislikeFlashCards}
+          expandedCommentsByMediaId={expandedCommentsByMediaId}
+          commentsByMediaId={commentsByMediaId}
+          commentsLoadingByMediaId={commentsLoadingByMediaId}
+          commentsErrorByMediaId={commentsErrorByMediaId}
+          onToggleComments={toggleComments}
+        />
+      </section>
+
+      {isFeedbackMounted ? (
+        <section className={`feedback-widget ${showFeedbackPrompt ? "show" : ""} ${isFeedbackExiting ? "hide" : ""}`}>
+          <p className="feedback-title">این پیشنهادها برات مفید بود؟</p>
+          <div className="feedback-actions">
+            <button type="button" className="feedback-btn like" disabled={isSubmittingFeedback || isFeedbackLocked} onClick={() => submitFeedback(true)}>
+              👍 پسندیدم
+            </button>
+            <button type="button" className="feedback-btn dislike" disabled={isSubmittingFeedback || isFeedbackLocked} onClick={() => submitFeedback(false)}>
+              👎 نپسندیدم
+            </button>
+          </div>
+          {feedbackMessage ? <p className="feedback-message">{feedbackMessage}</p> : null}
+        </section>
+      ) : null}
+
+      <div className="footer">
+        <a href="/" className="back-btn">بازگشت به داشبورد اصلی</a>
+      </div>
+    </main>
+  );
+};
