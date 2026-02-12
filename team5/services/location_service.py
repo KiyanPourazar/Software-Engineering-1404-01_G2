@@ -32,21 +32,29 @@ def resolve_client_city(
     preferred_city_id: str | None = None,
 ) -> dict | None:
     """
-    Resolve nearest city from IP geolocation, then explicit city fallback.
-
-    Returns a dict with:
-    - city: matching city record from provider
-    - source: how city was resolved
-    - geo: raw geolocation payload (if available)
+    Resolve nearest city.
+    PRIORITY:
+    1. Manual Override (preferred_city_id)
+    2. IP Geolocation
     """
+
+    # --- priority is on manual selecting ---
+    if preferred_city_id:
+        city = _match_city_id(cities, preferred_city_id)
+        if city:
+            return {"city": city, "source": "manual_city_override", "geo": None}
+
+    # --if user does not select any city then check IP ---
     if client_ip:
         geo = _geolocate_ip(client_ip)
         if geo:
+            # 1. Try matching by City Name returned from IP API
             if geo.get("city"):
                 city = _match_city_name(cities, str(geo["city"]))
                 if city:
                     return {"city": city, "source": "ip_city_name", "geo": geo}
 
+            # 2. Try matching by Coordinates (Nearest Haversine)
             latitude = _to_float(geo.get("latitude"))
             longitude = _to_float(geo.get("longitude"))
             if latitude is not None and longitude is not None:
@@ -54,25 +62,61 @@ def resolve_client_city(
                 if city:
                     return {"city": city, "source": "ip_coordinates", "geo": geo}
 
-    if preferred_city_id:
-        city = _match_city_id(cities, preferred_city_id)
-        if city:
-            return {"city": city, "source": "manual_city_override", "geo": None}
-
     return None
 
+#------------- geting location from ip address
+# def _geolocate_ip(client_ip: str) -> dict | None:
+#     """
+#     Resolve IP to city/coordinates using a public endpoint.
+#     """
+#     try:
+#         parsed_ip = ip_address(client_ip)
+#         if parsed_ip.is_private or parsed_ip.is_loopback or parsed_ip.is_unspecified:
+#             return None
+#     except ValueError:
+#         return None
+#
+#     # ipapi
+#     url = f"https://ipapi.co/{client_ip}/json/"
+#     try:
+#         #timeout
+#         with urlopen(url, timeout=1.5) as response:
+#             payload = json.loads(response.read().decode("utf-8"))
+#     except (URLError, TimeoutError, ValueError, json.JSONDecodeError):
+#         return None
+#
+#     if not isinstance(payload, dict):
+#         return None
+#
+#     if payload.get("error"):
+#         return None
+#
+#     return {
+#         "city": payload.get("city"),
+#         "country": payload.get("country_name"),
+#         "latitude": payload.get("latitude"),
+#         "longitude": payload.get("longitude"),
+#     }
+
+# --------------- getting location manual(example because of local ip (127.0.0.1))
 
 def _geolocate_ip(client_ip: str) -> dict | None:
     """
     Resolve IP to city/coordinates using a public endpoint.
-
-    Notes:
-    - For private/local addresses, return None to avoid misleading results.
-    - Keep timeout short to avoid slowing requests.
     """
+
+    if client_ip in ("127.0.0.1", "::1", "localhost"):
+        return {
+            "city": "Tehran",
+            "country": "Iran",
+            "latitude": 35.6892,    #tehran coordiantions
+            "longitude": 51.3890
+        }
+    # ------------------------------------
+
     try:
         parsed_ip = ip_address(client_ip)
-        if parsed_ip.is_private or parsed_ip.is_loopback or parsed_ip.is_unspecified:
+        if parsed_ip.is_private and not parsed_ip.is_loopback:
             return None
     except ValueError:
         return None
@@ -84,10 +128,7 @@ def _geolocate_ip(client_ip: str) -> dict | None:
     except (URLError, TimeoutError, ValueError, json.JSONDecodeError):
         return None
 
-    if not isinstance(payload, dict):
-        return None
-
-    if payload.get("error"):
+    if not isinstance(payload, dict) or payload.get("error"):
         return None
 
     return {
@@ -97,9 +138,8 @@ def _geolocate_ip(client_ip: str) -> dict | None:
         "longitude": payload.get("longitude"),
     }
 
-
 def _match_city_id(cities: list[dict], city_id: str) -> dict | None:
-    normalized = city_id.strip().lower()
+    normalized = str(city_id).strip().lower()
     for city in cities:
         if str(city.get("cityId", "")).strip().lower() == normalized:
             return city
@@ -119,17 +159,29 @@ def _nearest_city_by_coordinates(cities: list[dict], *, latitude: float, longitu
     best_distance_km: float | None = None
 
     for city in cities:
+        # list[a,b] = distance
         coords = city.get("coordinates") or []
+
+        # handle diffrence version of data
+        if not coords and "latitude" in city and "longitude" in city:
+             coords = [city["latitude"], city["longitude"]]
+
         if len(coords) != 2:
             continue
+
         city_lat = _to_float(coords[0])
         city_lon = _to_float(coords[1])
+
         if city_lat is None or city_lon is None:
             continue
+
         distance = _haversine_km(latitude, longitude, city_lat, city_lon)
+
+        # if distance less than 50km
         if best_distance_km is None or distance < best_distance_km:
-            best_distance_km = distance
-            best_city = city
+            if distance < 300: # example 300m far away
+                best_distance_km = distance
+                best_city = city
 
     return best_city
 
