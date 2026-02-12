@@ -113,3 +113,7 @@ class DatabaseProvider(DataProvider):
             "placeName": place.place_name,
             "coordinates": [place.latitude, place.longitude],
         }
+
+    def get_random_media(self, limit: int) -> list[MediaRecord]:
+        rows = Team5Media.objects.order_by("?")[:limit]
+        return [self._media_to_record(row) for row in rows]

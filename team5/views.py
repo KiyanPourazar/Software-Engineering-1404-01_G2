@@ -299,3 +299,13 @@ def get_recommendations_api(request):
             "items": items
         }
     })
+
+@require_GET
+def get_random_media_recommendations(request):
+    limit = _parse_limit(request)
+    items = provider.get_random_media(limit=limit)
+    return JsonResponse({
+        "status": "success",
+        "count": len(items),
+        "items": items
+    })
