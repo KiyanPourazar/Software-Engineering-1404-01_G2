@@ -31,6 +31,8 @@
         personalized: "Personalized",
         interests: "Interests",
         "user-ratings": "User Ratings",
+        "ab-recommendations": "AB Recommendations",
+        "ab-summary": "AB Summary",
       };
 
       const REASON_LABELS = {
@@ -79,6 +81,8 @@
         const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
         const [isFeedbackLocked, setIsFeedbackLocked] = useState(false);
         const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+        const [abVersion, setAbVersion] = useState("AUTO");
+        const [abStrategy, setAbStrategy] = useState("personalized");
         const feedbackHideTimerRef = useRef(null);
 
         const safeLimit = useMemo(() => {
@@ -89,6 +93,11 @@
 
         const shownMediaIds = useMemo(() => extractShownMediaIds(cardsPayload), [cardsPayload]);
         const canShowFeedback = FEEDBACK_ACTIONS.has(lastAction) && shownMediaIds.length > 0 && !feedbackSubmitted;
+        const activeAbGroup = useMemo(() => {
+          const group = cardsPayload?.metadata?.ab_test_group;
+          if (group === "A" || group === "B") return group;
+          return abVersion === "AUTO" ? "A" : abVersion;
+        }, [cardsPayload, abVersion]);
 
         useEffect(() => {
           loadReferenceData();
@@ -202,6 +211,12 @@
               return api(`/team5/api/recommendations/personalized/?userId=${encodedUser}&limit=${safeLimit}`);
             case "interests":
               return api(`/team5/api/users/${encodedUser}/interests/`);
+            case "ab-recommendations":
+              return api(
+                `/team5/api/recommendations/?userId=${encodedUser}&limit=${safeLimit}&strategy=${encodeURIComponent(abStrategy)}&version=${encodeURIComponent(abVersion)}`
+              );
+            case "ab-summary":
+              return api("/team5/api/recommendations/ab/summary/?days=30");
             case "ping":
               return api("/team5/ping/");
             default:
@@ -284,6 +299,7 @@
                 userId: userId.trim(),
                 action: lastAction,
                 liked,
+                version: activeAbGroup,
                 shownMediaIds: shownMediaIds,
               }),
             });
@@ -356,6 +372,25 @@
                   Limit
                   <input type="number" min="1" max="100" value={limit} onChange={(e) => setLimit(e.target.value)} />
                 </label>
+                <label>
+                  AB Version
+                  <select value={abVersion} onChange={(e) => setAbVersion((e.target.value || "AUTO").toUpperCase())}>
+                    <option value="AUTO">AUTO (deterministic split)</option>
+                    <option value="A">A (control)</option>
+                    <option value="B">B (variant)</option>
+                  </select>
+                </label>
+                <label>
+                  AB Strategy
+                  <select value={abStrategy} onChange={(e) => setAbStrategy(e.target.value)}>
+                    <option value="personalized">personalized</option>
+                    <option value="popular">popular</option>
+                    <option value="nearest">nearest</option>
+                    <option value="weather">weather</option>
+                    <option value="occasions">occasions</option>
+                    <option value="random">random</option>
+                  </select>
+                </label>
               </div>
             </section>
 
@@ -382,6 +417,12 @@
 
             <section className="panel">
               <h2>نمایش کارت‌ها</h2>
+              {cardsPayload?.metadata ? (
+                <p className="reason">
+                  AB Group: {cardsPayload.metadata.ab_test_group} | Requested: {cardsPayload.metadata.requested_version} |
+                  Strategy: {cardsPayload.metadata.requested_strategy} | Applied: {cardsPayload.metadata.applied_strategy}
+                </p>
+              ) : null}
               <CardsView payload={cardsPayload} lastAction={lastAction} placesById={placesById} citiesById={citiesById} shineCards={shineCards} dislikeFlashCards={dislikeFlashCards} />
             </section>
 
@@ -412,6 +453,9 @@
         if (Array.isArray(payload)) {
           sections.push({ title: ACTION_LABELS[lastAction] || "Items", items: payload });
         } else if (payload && typeof payload === "object") {
+          if (payload.data && typeof payload.data === "object" && Array.isArray(payload.data.items)) {
+            sections.push({ title: ACTION_LABELS[lastAction] || "Items", items: payload.data.items });
+          }
           if (Array.isArray(payload.sections)) {
             for (const section of payload.sections) {
               sections.push({

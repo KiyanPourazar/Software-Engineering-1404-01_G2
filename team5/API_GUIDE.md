@@ -59,6 +59,12 @@ Retrieves a list of recommended media based on user profile and selected strateg
 `GET /team5/api/recommendations/random/?userId=<uuid>&limit=10`
 
 This endpoint intentionally returns random suggestions and does **not** filter by user preferences.
+
+### A/B behavior in this project
+
+- `version=A`: control group, returns the requested strategy directly.
+- `version=B`: variant group, returns a mixed feed (baseline strategy + random exploration).
+- `version=AUTO`: deterministic assignment by `userId` to keep users in a stable cohort.
 ## 2. Submit Interaction Feedback
 Logs user interactions (likes/dislikes) to improve future recommendations and track A/B test results.
 
@@ -83,5 +89,14 @@ Logs user interactions (likes/dislikes) to improve future recommendations and tr
 ```
 🛠 Integration Notes
 A/B Testing: If you are conducting a test, ensure you pass the version parameter in both GET and POST requests to maintain data consistency.
+
+## 3. A/B Summary
+Aggregates feedback metrics for A/B groups.
+
+**Endpoint:** `GET /team5/api/recommendations/ab/summary/?days=30`
+
+Optional query params:
+- `days` (1..365): analysis window size
+- `action`: filter by recommendation action (`popular`, `personalized`, ...)
 
 Error Handling: If userId is missing, the API returns a 400 Bad Request with a descriptive error message.

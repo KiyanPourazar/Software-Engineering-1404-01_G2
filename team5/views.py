@@ -1,10 +1,12 @@
 import json
+import hashlib
 from uuid import UUID
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from core.auth import api_login_required
 from .models import Team5RecommendationFeedback
@@ -18,6 +20,8 @@ from .services.recommendation_service import RecommendationService
 # Constants
 TEAM_NAME = "team5"
 FEEDBACK_ACTIONS = {"popular", "personalized", "nearest", "weather", "occasions", "random"}
+AB_ALLOWED_STRATEGIES = {"personalized", "popular", "nearest", "weather", "occasions", "random"}
+AB_ALLOWED_GROUPS = {"A", "B"}
 User = get_user_model()
 provider = DatabaseProvider()
 recommendation_service = RecommendationService(provider)
@@ -188,25 +192,30 @@ def submit_recommendation_feedback(request):
         action = str(payload.get("action") or "").strip().lower()
         liked = payload.get("liked")
 
-        # Capture the A/B version to analyze conversion rates per group
-        ab_version = payload.get("version", "A").upper()
+        # Capture requested A/B version for API response/debugging.
+        # Group assignment for analytics is deterministic by user_id.
+        ab_version = _normalize_ab_version(payload.get("version"))
+        assigned_group = _resolve_ab_group(user_id=str(user_uuid), requested_version=ab_version)
 
         if not user_uuid or action not in FEEDBACK_ACTIONS or not isinstance(liked, bool):
             raise ValueError("Invalid payload data provided.")
 
         # Save feedback specifically to the 'team5' database
-        Team5RecommendationFeedback.objects.using('team5').create(
+        Team5RecommendationFeedback.objects.using("team5").create(
             user_id=user_uuid,
             action=action,
             liked=liked,
-            ab_version=ab_version,
             shown_media_ids=list(
                 dict.fromkeys([str(m).strip() for m in payload.get("shownMediaIds", []) if str(m).strip()])
             )
         )
         return JsonResponse({
             "ok": True,
-            "detail": f"Feedback successfully saved for version {ab_version}"
+            "detail": f"Feedback successfully saved for version {assigned_group}",
+            "abTest": {
+                "requestedVersion": ab_version,
+                "assignedGroup": assigned_group,
+            },
         })
     except (json.JSONDecodeError, ValueError) as e:
         return JsonResponse({"detail": str(e)}, status=400)
@@ -273,12 +282,10 @@ def get_recommendations_api(request):
     user_id = request.GET.get("userId")
     limit = _parse_limit(request)
 
-    # Manage A/B Testing versions (Default is 'A')
-    # Use version='B' as a query param to trigger the test variant
-    version = request.GET.get("version", "A").upper()
-
-    # Strategy pattern: client can choose between 'personalized', 'weather', or 'popular'
-    strategy = request.GET.get("strategy", "personalized")
+    requested_version = _normalize_ab_version(request.GET.get("version"))
+    strategy = str(request.GET.get("strategy", "personalized") or "personalized").strip().lower()
+    if strategy not in AB_ALLOWED_STRATEGIES:
+        strategy = "personalized"
 
     if not user_id:
         return JsonResponse({
@@ -286,23 +293,24 @@ def get_recommendations_api(request):
             "message": "userId is required as a query parameter."
         }, status=400)
 
-    # Logic for A/B Testing: version 'B' triggers a specific test algorithm
-    if version == "B":
-        # Variant B: Testing recommendations based on specific occasions
-        items = recommendation_service.get_occasion_recommendations(user_id=user_id, limit=limit)
-        applied_method = "occasion_test_v2"
+    assigned_group = _resolve_ab_group(user_id=user_id, requested_version=requested_version)
+    excluded = _load_excluded_media_ids(user_id=user_id, action=strategy)
+
+    if assigned_group == "B":
+        items = _build_variant_b_items(
+            strategy=strategy,
+            user_id=user_id,
+            limit=limit,
+            excluded_media_ids=excluded,
+        )
+        applied_method = f"{strategy}_variant_b_mixed"
     else:
-        # Variant A (Control): Follow the requested strategy
-        if strategy == "weather":
-            items = recommendation_service.get_weather_recommendations(user_id=user_id, limit=limit)
-        elif strategy == "popular":
-            items = recommendation_service.get_popular(limit=limit)
-        elif strategy == "nearest":
-            # Fetches location-based content (Tehran used as default fallback)
-            items = recommendation_service.get_nearest_by_city(city_id="tehran", limit=limit)
-        else:
-            # Default strategy: Collaborative filtering / Personalization
-            items = recommendation_service.get_personalized(user_id=user_id, limit=limit)
+        items = _get_items_for_strategy(
+            strategy=strategy,
+            user_id=user_id,
+            limit=limit,
+            excluded_media_ids=excluded,
+        )
         applied_method = strategy
 
     # Return a structured JSON response with metadata for transparency
@@ -311,13 +319,221 @@ def get_recommendations_api(request):
         "metadata": {
             "team": "team5",
             "api_version": "v2.0",
-            "ab_test_group": version,
+            "ab_test_group": assigned_group,
+            "requested_version": requested_version,
             "applied_strategy": applied_method,
-            "limit": limit
+            "requested_strategy": strategy,
+            "limit": limit,
         },
         "data": {
             "userId": user_id,
             "count": len(items),
-            "items": items
+            "items": items,
         }
     })
+
+
+@require_GET
+def get_ab_test_summary(request):
+    """
+    Aggregate A/B feedback metrics from Team5 feedback logs.
+    Group assignment is deterministic by user_id, so we can evaluate past data
+    even if clients did not always send version explicitly.
+    """
+    action_filter = str(request.GET.get("action", "") or "").strip().lower()
+    try:
+        days = max(1, min(int(request.GET.get("days", 30)), 365))
+    except (TypeError, ValueError):
+        days = 30
+
+    since = timezone.now() - timezone.timedelta(days=days)
+    feedback_qs = Team5RecommendationFeedback.objects.using("team5").filter(created_at__gte=since)
+    if action_filter:
+        feedback_qs = feedback_qs.filter(action=action_filter)
+    rows = list(feedback_qs.only("user_id", "action", "liked", "created_at"))
+
+    summary = {
+        "A": {"impressions": 0, "likes": 0, "dislikes": 0, "users": set()},
+        "B": {"impressions": 0, "likes": 0, "dislikes": 0, "users": set()},
+    }
+    by_action: dict[str, dict[str, dict[str, int | float]]] = {}
+
+    for row in rows:
+        group = _resolve_ab_group(user_id=str(row.user_id), requested_version="AUTO")
+        action = str(row.action or "").strip().lower() or "unknown"
+        bucket = summary[group]
+        bucket["impressions"] += 1
+        bucket["likes"] += 1 if bool(row.liked) else 0
+        bucket["dislikes"] += 0 if bool(row.liked) else 1
+        bucket["users"].add(str(row.user_id))
+
+        if action not in by_action:
+            by_action[action] = {
+                "A": {"impressions": 0, "likes": 0, "likeRate": 0.0},
+                "B": {"impressions": 0, "likes": 0, "likeRate": 0.0},
+            }
+        by_action[action][group]["impressions"] += 1
+        by_action[action][group]["likes"] += 1 if bool(row.liked) else 0
+
+    def _finalize_group_stats(data: dict) -> dict:
+        impressions = int(data["impressions"])
+        likes = int(data["likes"])
+        dislikes = int(data["dislikes"])
+        users_count = len(data["users"])
+        like_rate = round((likes / impressions) * 100, 2) if impressions else 0.0
+        return {
+            "impressions": impressions,
+            "likes": likes,
+            "dislikes": dislikes,
+            "uniqueUsers": users_count,
+            "likeRatePercent": like_rate,
+        }
+
+    group_a = _finalize_group_stats(summary["A"])
+    group_b = _finalize_group_stats(summary["B"])
+
+    for action, groups in by_action.items():
+        for group in ("A", "B"):
+            impressions = int(groups[group]["impressions"])
+            likes = int(groups[group]["likes"])
+            groups[group]["likeRate"] = round((likes / impressions) * 100, 2) if impressions else 0.0
+
+    return JsonResponse(
+        {
+            "status": "success",
+            "windowDays": days,
+            "appliedActionFilter": action_filter or None,
+            "groups": {"A": group_a, "B": group_b},
+            "deltaLikeRatePercent": round(group_b["likeRatePercent"] - group_a["likeRatePercent"], 2),
+            "byAction": by_action,
+        }
+    )
+
+
+def _normalize_ab_version(raw_value) -> str:
+    value = str(raw_value or "AUTO").strip().upper()
+    if value in AB_ALLOWED_GROUPS:
+        return value
+    return "AUTO"
+
+
+def _resolve_ab_group(*, user_id: str, requested_version: str) -> str:
+    if requested_version in AB_ALLOWED_GROUPS:
+        return requested_version
+    digest = hashlib.md5(str(user_id).encode("utf-8")).hexdigest()
+    return "A" if int(digest[:2], 16) % 2 == 0 else "B"
+
+
+def _get_items_for_strategy(
+    *,
+    strategy: str,
+    user_id: str,
+    limit: int,
+    excluded_media_ids: set[str],
+) -> list[dict]:
+    if strategy == "popular":
+        return recommendation_service.get_popular(limit=limit, excluded_media_ids=excluded_media_ids)
+    if strategy == "nearest":
+        return recommendation_service.get_nearest_by_city(
+            city_id="tehran",
+            limit=limit,
+            user_id=user_id,
+            excluded_media_ids=excluded_media_ids,
+        )
+    if strategy == "weather":
+        payload = recommendation_service.get_weather_recommendations(
+            limit=limit,
+            user_id=user_id,
+            excluded_media_ids=excluded_media_ids,
+        )
+        return _extract_items_from_payload(payload)
+    if strategy == "occasions":
+        ensure_occasion_media_seeded()
+        payload = recommendation_service.get_occasion_recommendations(
+            limit=limit,
+            user_id=user_id,
+            excluded_media_ids=excluded_media_ids,
+        )
+        return _extract_items_from_payload(payload)
+    if strategy == "random":
+        return recommendation_service.get_random(
+            limit=limit,
+            user_id=user_id,
+            excluded_media_ids=excluded_media_ids,
+        )
+
+    items = recommendation_service.get_personalized(
+        user_id=user_id,
+        limit=limit,
+        excluded_media_ids=excluded_media_ids,
+    )
+    if items:
+        return items
+    return recommendation_service.get_popular(limit=limit, excluded_media_ids=excluded_media_ids)
+
+
+def _build_variant_b_items(
+    *,
+    strategy: str,
+    user_id: str,
+    limit: int,
+    excluded_media_ids: set[str],
+) -> list[dict]:
+    """
+    Variant B mixes baseline strategy with random exploration.
+    Goal: test whether diversity/exploration improves positive feedback.
+    """
+    half = max(1, limit // 2)
+    baseline = _get_items_for_strategy(
+        strategy=strategy,
+        user_id=user_id,
+        limit=max(1, limit - half),
+        excluded_media_ids=excluded_media_ids,
+    )
+    baseline_ids = {str(item.get("mediaId")) for item in baseline if str(item.get("mediaId"))}
+    exploratory = recommendation_service.get_random(
+        limit=max(1, half),
+        user_id=user_id,
+        excluded_media_ids=excluded_media_ids.union(baseline_ids),
+    )
+    for item in baseline:
+        item["abVariant"] = "B"
+        item["abBucket"] = "baseline"
+    for item in exploratory:
+        item["abVariant"] = "B"
+        item["abBucket"] = "explore"
+
+    merged: list[dict] = []
+    left = list(baseline)
+    right = list(exploratory)
+    while (left or right) and len(merged) < limit:
+        if left:
+            merged.append(left.pop(0))
+            if len(merged) >= limit:
+                break
+        if right:
+            merged.append(right.pop(0))
+    return merged[:limit]
+
+
+def _extract_items_from_payload(payload: dict) -> list[dict]:
+    if not isinstance(payload, dict):
+        return []
+    if isinstance(payload.get("items"), list):
+        return payload["items"]
+    sections = payload.get("sections")
+    if not isinstance(sections, list):
+        return []
+    items: list[dict] = []
+    seen_ids: set[str] = set()
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        for item in section.get("items") or []:
+            media_id = str(item.get("mediaId") or "").strip()
+            if media_id and media_id in seen_ids:
+                continue
+            if media_id:
+                seen_ids.add(media_id)
+            items.append(item)
+    return items

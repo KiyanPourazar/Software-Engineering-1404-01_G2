@@ -16,6 +16,7 @@ urlpatterns = [
     path("api/recommendations/weather/", views.get_weather_recommendations),
     path("api/recommendations/occasions/", views.get_occasion_recommendations),
     path("api/recommendations/feedback/", views.submit_recommendation_feedback),
+    path("api/recommendations/ab/summary/", views.get_ab_test_summary),
     path("api/users/<str:user_id>/interests/", views.get_user_interests),
     path("api/train", views.train),
     path("api/ml/status", views.ml_status),
