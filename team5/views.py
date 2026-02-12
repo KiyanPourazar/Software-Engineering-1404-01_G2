@@ -438,6 +438,7 @@ def get_ab_test_summary(request):
         dislikes = int(data["dislikes"])
         users_count = len(data["users"])
         like_rate = round((likes / impressions) * 100, 2) if impressions else 0.0
+
         return {
             "impressions": impressions,
             "likes": likes,
@@ -577,6 +578,7 @@ def _build_variant_b_items(
             merged.append(right.pop(0))
 
     return merged[:limit]
+
 
 
 def _extract_items_from_payload(payload: dict) -> list[dict]:
