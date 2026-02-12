@@ -7,13 +7,15 @@ Team5UI.API_BASE = "";
 Team5UI.FEEDBACK_ACTIONS = new Set(["popular", "personalized", "nearest", "weather", "occasions", "random"]);
 
 Team5UI.ACTION_LABELS = {
+  "rated-high": "Rated High",
+  "rated-low": "Rated Low",
   users: "Users",
   cities: "Cities",
   places: "Places",
   media: "Media",
   popular: "Popular",
   nearest: "Your Nearest",
-  weather: "Weather",
+  weather: "Season",
   occasions: "Occasions",
   random: "Random",
   personalized: "Personalized",
@@ -22,6 +24,17 @@ Team5UI.ACTION_LABELS = {
   "ab-recommendations": "AB Recommendations",
   "ab-summary": "AB Summary",
 };
+
+Team5UI.PRIMARY_TABS = [
+  "rated-high",
+  "rated-low",
+  "popular",
+  "nearest",
+  "weather",
+  "occasions",
+  "random",
+  "personalized",
+];
 
 Team5UI.REASON_LABELS = {
   high_user_rating: "به خاطر امتیاز بالای کاربر",

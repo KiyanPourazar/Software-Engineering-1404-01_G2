@@ -228,7 +228,8 @@ def submit_recommendation_feedback(request):
     """
     try:
         payload = json.loads(request.body or "{}")
-        user_uuid = _parse_uuid(payload.get("userId"))
+        fallback_user_id = str(request.user.id) if getattr(request.user, "is_authenticated", False) else None
+        user_uuid = _parse_uuid(payload.get("userId")) or _parse_uuid(fallback_user_id)
         action = str(payload.get("action") or "").strip().lower()
         liked = payload.get("liked")
 

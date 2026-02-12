@@ -28,6 +28,101 @@ body {
   margin: 0 auto;
 }
 
+.top-navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  direction: ltr;
+  background: #ffffff;
+  border: 1px solid #d9e6d1;
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+}
+
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 800;
+  background: radial-gradient(circle at top right, #2e7d32, #66bb6a);
+  color: #fff;
+}
+
+.brand-text h1 {
+  margin: 0;
+  font-size: 18px;
+  color: #17371d;
+}
+
+.brand-text p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #6a7f6f;
+}
+
+.profile-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.profile-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  background: linear-gradient(135deg, #0d47a1, #42a5f5);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.profile-meta {
+  min-width: 0;
+  direction: rtl;
+  text-align: right;
+}
+
+.profile-meta p {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: #17371d;
+}
+
+.profile-user {
+  font-size: 12px;
+  color: #4d6d54;
+}
+
+.profile-email {
+  font-size: 11px;
+  color: #718a77;
+}
+
 .page-header {
   text-align: center;
   margin-bottom: 20px;
@@ -104,6 +199,10 @@ select:focus {
   gap: 10px;
 }
 
+.utility-actions {
+  margin-top: 8px;
+}
+
 button {
   border: 0;
   border-radius: 10px;
@@ -130,6 +229,43 @@ pre {
   background: #0f172a;
   color: #dbeafe;
   font-size: 13px;
+}
+
+.recommendation-nav {
+  margin-bottom: 10px;
+}
+
+.recommendation-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #26472c;
+}
+
+.tabs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tab-btn {
+  background: #ecf5e8;
+  color: #2f5436;
+  border: 1px solid #d2e2cd;
+  transition: all 180ms ease;
+}
+
+.tab-btn:hover {
+  transform: translateY(-1px);
+  background: #e0f0db;
+  border-color: #b9d6b1;
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, #2e7d32, #43a047);
+  border-color: #2e7d32;
+  color: #fff;
+  box-shadow: 0 8px 16px rgba(46, 125, 50, 0.25);
 }
 
 .cards {
@@ -503,6 +639,50 @@ pre {
   opacity: 0;
   transform: translateY(18px) scale(0.98);
   pointer-events: none;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  backdrop-filter: blur(4px);
+  background: rgba(16, 24, 16, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.modal-card {
+  width: min(520px, 100%);
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #d8e6d1;
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.2);
+  padding: 16px;
+}
+
+.modal-card h3 {
+  margin: 0 0 8px;
+}
+
+.modal-card p {
+  margin: 0 0 10px;
+  color: #5e7463;
+}
+
+.modal-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.modal-actions .secondary {
+  background: #8ca090;
+}
+
+.modal-actions .secondary:hover {
+  background: #728877;
 }
 
 .feedback-widget.show {
