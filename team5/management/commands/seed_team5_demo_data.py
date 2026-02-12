@@ -117,6 +117,7 @@ class Command(BaseCommand):
         created_users = 0
         total_ratings = 0
         all_profiles = list(DEMO_USERS) + self._build_synthetic_profiles(extra_users)
+        seeded_user_ids: set[str] = set()
 
         for profile in all_profiles:
             user, created = User.objects.get_or_create(
@@ -134,21 +135,26 @@ class Command(BaseCommand):
                 user.save()
                 created_users += 1
 
-            sample_size = random.randint(min_ratings_per_user, min(max_ratings_per_user, len(media_ids)))
-            selected_media_ids = random.sample(media_ids, sample_size)
+            seeded_user_ids.add(str(user.id))
+            total_ratings += self._upsert_random_ratings_for_user(
+                user=user,
+                media_ids=media_ids,
+                min_ratings_per_user=min_ratings_per_user,
+                max_ratings_per_user=max_ratings_per_user,
+            )
 
-            for media_id in selected_media_ids:
-                rate = random.choice([2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
-                Team5MediaRating.objects.update_or_create(
-                    user_id=user.id,
-                    media_id=media_id,
-                    defaults={
-                        "user_email": user.email,
-                        "rate": rate,
-                        "liked": rate >= 4.0,
-                    },
-                )
-                total_ratings += 1
+        # Ensure every active user in the system has enough ratings.
+        # This prevents users outside the demo/synthetic profile list from staying unrated.
+        active_users = User.objects.filter(is_active=True).only("id", "email")
+        for user in active_users:
+            if str(user.id) in seeded_user_ids:
+                continue
+            total_ratings += self._upsert_random_ratings_for_user(
+                user=user,
+                media_ids=media_ids,
+                min_ratings_per_user=min_ratings_per_user,
+                max_ratings_per_user=max_ratings_per_user,
+            )
 
         self._assign_media_authors_and_content()
 
@@ -166,6 +172,33 @@ class Command(BaseCommand):
         )
         self.stdout.write("Demo users are now available in core.User (default DB).")
         self.stdout.write("Team5 catalog+ratings are now stored in team5 database.")
+
+    def _upsert_random_ratings_for_user(
+        self,
+        *,
+        user,
+        media_ids: list[str],
+        min_ratings_per_user: int,
+        max_ratings_per_user: int,
+    ) -> int:
+        if not media_ids:
+            return 0
+        sample_size = random.randint(min_ratings_per_user, min(max_ratings_per_user, len(media_ids)))
+        selected_media_ids = random.sample(media_ids, sample_size)
+        upserted = 0
+        for media_id in selected_media_ids:
+            rate = random.choice([2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0])
+            Team5MediaRating.objects.update_or_create(
+                user_id=user.id,
+                media_id=media_id,
+                defaults={
+                    "user_email": user.email,
+                    "rate": rate,
+                    "liked": rate >= 4.0,
+                },
+            )
+            upserted += 1
+        return upserted
 
     def _seed_catalog(self, provider: MockProvider):
         for city in provider.get_cities():

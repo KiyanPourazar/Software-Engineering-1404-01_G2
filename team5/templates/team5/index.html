@@ -16,7 +16,7 @@
       const { useEffect, useMemo, useRef, useState } = React;
 
       const API_BASE = window.location.port === "8000" ? "" : "http://127.0.0.1:8000";
-      const FEEDBACK_ACTIONS = new Set(["popular", "personalized", "nearest", "weather", "occasions"]);
+      const FEEDBACK_ACTIONS = new Set(["popular", "personalized", "nearest", "weather", "occasions", "random"]);
 
       const ACTION_LABELS = {
         users: "Users",
@@ -27,6 +27,7 @@
         nearest: "Your Nearest",
         weather: "Weather",
         occasions: "Occasions",
+        random: "Random",
         personalized: "Personalized",
         interests: "Interests",
         "user-ratings": "User Ratings",
@@ -50,6 +51,7 @@
         occasion_chaharshanbe_soori: "پیشنهاد ویژه چهارشنبه‌سوری",
         occasion_sizdah_bedar: "پیشنهاد ویژه سیزده‌بدر",
         occasion_mehregan: "پیشنهاد ویژه مهرگان",
+        random_explore: "پیشنهاد رندوم برای کاربر کنجکاو",
       };
 
       function api(path) {
@@ -188,6 +190,8 @@
               return api(`/team5/api/users/${encodedUser}/ratings/`);
             case "popular":
               return api(`/team5/api/recommendations/popular/?limit=${safeLimit}&userId=${encodedUser}`);
+            case "random":
+              return api(`/team5/api/recommendations/random/?limit=${Math.max(10, safeLimit)}&userId=${encodedUser}`);
             case "nearest":
               return api(`/team5/api/recommendations/nearest/?limit=${safeLimit}&cityId=${encodedCity}&userId=${encodedUser}`);
             case "weather":

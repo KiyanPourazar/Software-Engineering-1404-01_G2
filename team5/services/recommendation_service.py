@@ -3,6 +3,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import random
 from uuid import UUID
 
 from .contracts import (
@@ -67,6 +68,26 @@ class RecommendationService:
         for item in fallback:
             item["matchReason"] = "popular_fallback"
         return fallback[:limit]
+
+    def get_random(
+        self,
+        *,
+        limit: int = 10,
+        user_id: str | None = None,
+        excluded_media_ids: set[str] | None = None,
+    ) -> list[MediaRecord]:
+        media = [dict(item) for item in self.provider.get_media()]
+        excluded = excluded_media_ids or set()
+        ratings_by_media = self._get_db_ratings_by_media(user_id) if user_id else {}
+        candidates = [item for item in media if item["mediaId"] not in excluded]
+        random.shuffle(candidates)
+        for item in candidates:
+            user_rate = ratings_by_media.get(item["mediaId"])
+            if user_rate is not None:
+                item["userRate"] = float(user_rate)
+                item["liked"] = float(user_rate) >= self.personalized_min_user_rate
+            item["matchReason"] = "random_explore"
+        return candidates[: max(1, limit)]
 
     def get_nearest_by_city(
         self,

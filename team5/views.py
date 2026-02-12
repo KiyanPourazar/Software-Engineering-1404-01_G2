@@ -17,7 +17,7 @@ from .services.recommendation_service import RecommendationService
 
 # Constants
 TEAM_NAME = "team5"
-FEEDBACK_ACTIONS = {"popular", "personalized", "nearest", "weather", "occasions"}
+FEEDBACK_ACTIONS = {"popular", "personalized", "nearest", "weather", "occasions", "random"}
 User = get_user_model()
 provider = DatabaseProvider()
 recommendation_service = RecommendationService(provider)
@@ -57,6 +57,28 @@ def get_popular_recommendations(request):
     items = recommendation_service.get_popular(limit=limit, excluded_media_ids=excluded)
     return JsonResponse({
         "kind": "popular", "userId": user_id, "limit": limit, "count": len(items), "items": items
+    })
+
+
+@require_GET
+def get_random_recommendations(request):
+    # Curious mode: intentionally random, regardless of user preferences.
+    limit = _parse_limit(request)
+    limit = max(10, limit)
+    user_id = request.GET.get("userId")
+    excluded = _load_excluded_media_ids(user_id=user_id, action="random")
+    items = recommendation_service.get_random(
+        limit=limit,
+        user_id=user_id,
+        excluded_media_ids=excluded,
+    )
+    return JsonResponse({
+        "kind": "random",
+        "title": "For Curious Users",
+        "userId": user_id,
+        "limit": limit,
+        "count": len(items),
+        "items": items,
     })
 
 

@@ -10,6 +10,7 @@ urlpatterns = [
     path("api/users/", views.get_registered_users),
     path("api/users/<str:user_id>/ratings/", views.get_user_ratings),
     path("api/recommendations/popular/", views.get_popular_recommendations),
+    path("api/recommendations/random/", views.get_random_recommendations),
     path("api/recommendations/nearest/", views.get_nearest_recommendations),
     path("api/recommendations/personalized/", views.get_personalized_recommendations),
     path("api/recommendations/weather/", views.get_weather_recommendations),

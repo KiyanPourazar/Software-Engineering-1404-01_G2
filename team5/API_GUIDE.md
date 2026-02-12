@@ -44,6 +44,21 @@ Retrieves a list of recommended media based on user profile and selected strateg
     }
 }
 ```
+
+### ✅ Current concrete endpoints in project
+
+- `GET /team5/api/recommendations/popular/`
+- `GET /team5/api/recommendations/random/` (curious mode, minimum 10 random cards)
+- `GET /team5/api/recommendations/nearest/`
+- `GET /team5/api/recommendations/weather/`
+- `GET /team5/api/recommendations/occasions/`
+- `GET /team5/api/recommendations/personalized/`
+
+### Random/Curious mode example
+
+`GET /team5/api/recommendations/random/?userId=<uuid>&limit=10`
+
+This endpoint intentionally returns random suggestions and does **not** filter by user preferences.
 ## 2. Submit Interaction Feedback
 Logs user interactions (likes/dislikes) to improve future recommendations and track A/B test results.
 
